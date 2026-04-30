@@ -16,41 +16,78 @@ async function getFactFromGemini(apiKey) {
     const category = CATEGORIES[Math.floor(Math.random() * CATEGORIES.length)];
     const prompt = `Berikan SATU fakta unik tentang ${category.label}. Tulis persis 1 kalimat lengkap yang harus diakhiri dengan tanda titik (.). JANGAN SAMPAI KALIMAT TERPOTONG DI TENGAH. Jangan gunakan markdown atau kata pembuka.`;
 
+/**
+ * Memanggil Hugging Face API sebagai cadangan terakhir
+ */
+async function getFactFromHuggingFace(apiKey, categoryLabel) {
+    const model = "mistralai/Mistral-7B-Instruct-v0.2";
+    const prompt = `[INST] Berikan SATU fakta unik tentang ${categoryLabel} dalam Bahasa Indonesia. Tulis persis 1 kalimat lengkap. JANGAN gunakan kata pengantar. [/INST]`;
+    
+    const response = await fetch(`https://api-inference.huggingface.co/models/${model}`, {
+        method: 'POST',
+        headers: {
+            'Authorization': `Bearer ${apiKey}`,
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ 
+            inputs: prompt,
+            parameters: { max_new_tokens: 150 }
+        })
+    });
+
+    if (!response.ok) {
+        throw new Error(`Hugging Face Error: ${response.status}`);
+    }
+
+    const result = await response.json();
+    // Bersihkan teks dari instruksi jika model menyertakannya
+    let fact = (Array.isArray(result) ? result[0].generated_text : result.generated_text) || "";
+    return fact.split('[/INST]').pop().trim();
+}
+
+/**
+ * Memanggil Gemini API untuk mendapatkan fakta
+ */
+async function getFactFromGemini(env) {
+    const category = CATEGORIES[Math.floor(Math.random() * CATEGORIES.length)];
+    const prompt = `Berikan SATU fakta unik tentang ${category.label}. Tulis persis 1 kalimat lengkap yang harus diakhiri dengan tanda titik (.). JANGAN SAMPAI KALIMAT TERPOTONG DI TENGAH. Jangan gunakan markdown atau kata pembuka.`;
+
     const getResponse = async (modelName) => {
-        const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${apiKey}`;
+        const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${env.GEMINI_API_KEY}`;
         return await fetch(url, {
             method: 'POST',
-            headers: {
-                'Content-Type': 'application/json'
-            },
+            headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
                 contents: [{ parts: [{ text: prompt }] }],
-                generationConfig: {
-                    temperature: 0.9,
-                    maxOutputTokens: 1024,
-                    topP: 0.95,
-                    topK: 40,
-                }
+                generationConfig: { temperature: 0.9, maxOutputTokens: 100 }
             })
         });
     };
 
-    // Coba versi 2.5 terlebih dahulu
-    let response = await getResponse('gemini-2.5-flash');
-
-    // Jika server Google sedang penuh/overload (503), otomatis fallback ke versi 1.5
-    if (!response.ok && response.status === 503) {
-        response = await getResponse('gemini-1.5-flash');
-    }
-
-    if (!response.ok) {
-        const errText = await response.text();
-        throw new Error(`Gemini API Error: ${response.status} - ${errText}`);
-    }
-
-    const data = await response.json();
-    const factText = data.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
+    let factText = "";
     
+    // LAYER 1: Gemini 1.5 Flash (Sangat stabil)
+    let response = await getResponse('gemini-1.5-flash');
+    
+    // LAYER 2: Gemini Pro (Jika Flash sibuk/error)
+    if (!response.ok) {
+        response = await getResponse('gemini-pro');
+    }
+
+    if (response.ok) {
+        const data = await response.json();
+        factText = data.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
+    }
+
+    // LAYER 3: Hugging Face (Benteng terakhir jika Google semua error)
+    if (!factText && env.HUGGINGFACE_API_KEY) {
+        try {
+            factText = await getFactFromHuggingFace(env.HUGGINGFACE_API_KEY, category.label);
+        } catch (e) {
+            console.error(e);
+        }
+    }
+
     return { text: factText, category };
 }
 
@@ -86,7 +123,7 @@ export async function onRequestPost({ request, env }) {
         const config = JSON.parse(configStr);
         const { channelId, mentionUser, mentionName, senderName } = config;
 
-        const factData = await getFactFromGemini(env.GEMINI_API_KEY);
+        const factData = await getFactFromGemini(env);
         if (!factData || !factData.text) {
             return new Response('Failed to generate fact', { status: 500 });
         }
