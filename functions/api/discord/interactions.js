@@ -27,12 +27,16 @@ async function verifyDiscordSignature(body, signature, timestamp, publicKey) {
       );
       return await crypto.subtle.verify('Ed25519', key, hexToUint8Array(signature), message);
     } catch (fallbackErr) {
-      return false;
+      return fallbackErr.message || fallbackErr.toString();
     }
   }
 }
 
 export async function onRequestPost({ request, env }) {
+  if (!env.DISCORD_PUBLIC_KEY) {
+    return new Response('ERROR: DISCORD_PUBLIC_KEY is not set in this environment!', { status: 401 });
+  }
+
   const signature = request.headers.get('x-signature-ed25519');
   const timestamp = request.headers.get('x-signature-timestamp');
 
@@ -50,8 +54,8 @@ export async function onRequestPost({ request, env }) {
     env.DISCORD_PUBLIC_KEY
   );
 
-  if (!isValidRequest) {
-    return new Response('Bad request signature', { status: 401 });
+  if (isValidRequest !== true) {
+    return new Response(`Bad request signature: ${isValidRequest}`, { status: 401 });
   }
 
   const interaction = JSON.parse(bodyText);
