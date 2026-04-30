@@ -17,74 +17,78 @@ async function getFactFromGemini(apiKey) {
     const prompt = `Berikan SATU fakta unik tentang ${category.label}. Tulis persis 1 kalimat lengkap yang harus diakhiri dengan tanda titik (.). JANGAN SAMPAI KALIMAT TERPOTONG DI TENGAH. Jangan gunakan markdown atau kata pembuka.`;
 
 /**
- * Memanggil Hugging Face API sebagai cadangan terakhir
+ * Sistem Pengambil Fakta dengan Fallback Berlapis (Google & Hugging Face)
  */
-async function getFactFromHuggingFace(apiKey, categoryLabel) {
-    const model = "mistralai/Mistral-7B-Instruct-v0.2";
-    const prompt = `[INST] Berikan SATU fakta unik tentang ${categoryLabel} dalam Bahasa Indonesia. Tulis persis 1 kalimat lengkap. JANGAN gunakan kata pengantar. [/INST]`;
-    
-    const response = await fetch(`https://api-inference.huggingface.co/models/${model}`, {
-        method: 'POST',
-        headers: {
-            'Authorization': `Bearer ${apiKey}`,
-            'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({ 
-            inputs: prompt,
-            parameters: { max_new_tokens: 150 }
-        })
-    });
-
-    if (!response.ok) {
-        throw new Error(`Hugging Face Error: ${response.status}`);
-    }
-
-    const result = await response.json();
-    // Bersihkan teks dari instruksi jika model menyertakannya
-    let fact = (Array.isArray(result) ? result[0].generated_text : result.generated_text) || "";
-    return fact.split('[/INST]').pop().trim();
-}
-
-/**
- * Memanggil Gemini API untuk mendapatkan fakta
- */
-async function getFactFromGemini(env) {
+async function getFactFromAI(env) {
     const category = CATEGORIES[Math.floor(Math.random() * CATEGORIES.length)];
-    const prompt = `Berikan SATU fakta unik tentang ${category.label}. Tulis persis 1 kalimat lengkap yang harus diakhiri dengan tanda titik (.). JANGAN SAMPAI KALIMAT TERPOTONG DI TENGAH. Jangan gunakan markdown atau kata pembuka.`;
+    const prompt = `Berikan SATU fakta unik tentang ${category.label}. Tulis persis 1 kalimat lengkap yang harus diakhiri dengan tanda titik (.). JANGAN gunakan markdown atau kata pembuka.`;
 
-    const getResponse = async (modelName) => {
-        const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${env.GEMINI_API_KEY}`;
-        return await fetch(url, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                contents: [{ parts: [{ text: prompt }] }],
-                generationConfig: { temperature: 0.9, maxOutputTokens: 100 }
-            })
-        });
+    // Helper: Panggil Google Gemini
+    const tryGemini = async (model) => {
+        try {
+            const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${env.GEMINI_API_KEY}`;
+            const res = await fetch(url, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] })
+            });
+            if (!res.ok) return null;
+            const data = await res.json();
+            return data.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || null;
+        } catch { return null; }
     };
 
-    let factText = "";
-    
-    // LAYER 1: Gemini 1.5 Flash (Sangat stabil)
-    let response = await getResponse('gemini-1.5-flash');
-    
-    // LAYER 2: Gemini Pro (Jika Flash sibuk/error)
-    if (!response.ok) {
-        response = await getResponse('gemini-pro');
-    }
-
-    if (response.ok) {
-        const data = await response.json();
-        factText = data.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
-    }
-
-    // LAYER 3: Hugging Face (Benteng terakhir jika Google semua error)
-    if (!factText && env.HUGGINGFACE_API_KEY) {
+    // Helper: Panggil Hugging Face
+    const tryHF = async (model) => {
         try {
-            factText = await getFactFromHuggingFace(env.HUGGINGFACE_API_KEY, category.label);
-        } catch (e) {
-            console.error(e);
+            if (!env.HUGGINGFACE_API_KEY) return null;
+            const res = await fetch(`https://api-inference.huggingface.co/models/${model}`, {
+                method: 'POST',
+                headers: { 
+                    'Authorization': `Bearer ${env.HUGGINGFACE_API_KEY}`,
+                    'Content-Type': 'application/json' 
+                },
+                body: JSON.stringify({ 
+                    inputs: `[INST] ${prompt} [/INST]`,
+                    parameters: { max_new_tokens: 100 }
+                })
+            });
+            if (!res.ok) return null;
+            const result = await res.json();
+            let text = (Array.isArray(result) ? result[0].generated_text : result.generated_text) || "";
+            // Bersihkan sisa instruksi jika ada
+            if (text.includes('[/INST]')) text = text.split('[/INST]').pop();
+            return text.trim() || null;
+        } catch { return null; }
+    };
+
+    let factText = null;
+
+    // --- LAPISAN 1: Google Gemini Flash ---
+    const layer1 = ['gemini-1.5-flash', 'gemini-2.5-flash'];
+    for (const m of layer1) {
+        factText = await tryGemini(m);
+        if (factText) break;
+    }
+
+    // --- LAPISAN 2: Google Gemini Pro ---
+    if (!factText) {
+        factText = await tryGemini('gemini-pro');
+    }
+
+    // --- LAPISAN 3: Hugging Face Mega Fallback ---
+    if (!factText) {
+        const hfModels = [
+            'google/gemma-2-2b-it',
+            'Qwen/Qwen2.5-7B-Instruct',
+            'Qwen/Qwen2.5-Coder-32B-Instruct',
+            'deepseek-ai/DeepSeek-R1-Distill-Llama-8B',
+            'zai-org/GLM-4.5',
+            'mistralai/Mistral-7B-Instruct-v0.2'
+        ];
+        for (const m of hfModels) {
+            factText = await tryHF(m);
+            if (factText) break;
         }
     }
 
@@ -123,7 +127,7 @@ export async function onRequestPost({ request, env }) {
         const config = JSON.parse(configStr);
         const { channelId, mentionUser, mentionName, senderName } = config;
 
-        const factData = await getFactFromGemini(env);
+        const factData = await getFactFromAI(env);
         if (!factData || !factData.text) {
             return new Response('Failed to generate fact', { status: 500 });
         }
