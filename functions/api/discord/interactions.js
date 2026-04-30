@@ -1,34 +1,20 @@
+import nacl from 'tweetnacl';
+
 function hexToUint8Array(hex) {
   return new Uint8Array(hex.match(/.{1,2}/g).map(byte => parseInt(byte, 16)));
 }
 
-async function verifyDiscordSignature(body, signature, timestamp, publicKey) {
+function verifyDiscordSignature(body, signature, timestamp, publicKey) {
   try {
     const encoder = new TextEncoder();
-    const message = encoder.encode(timestamp + body);
-    const key = await crypto.subtle.importKey(
-      'raw',
-      hexToUint8Array(publicKey),
-      { name: 'NODE-ED25519', namedCurve: 'NODE-ED25519' },
-      false,
-      ['verify']
+    const isVerified = nacl.sign.detached.verify(
+      encoder.encode(timestamp + body),
+      hexToUint8Array(signature),
+      hexToUint8Array(publicKey)
     );
-    return await crypto.subtle.verify('NODE-ED25519', key, hexToUint8Array(signature), message);
-  } catch (err) {
-    try {
-      const encoder = new TextEncoder();
-      const message = encoder.encode(timestamp + body);
-      const key = await crypto.subtle.importKey(
-        'raw',
-        hexToUint8Array(publicKey),
-        { name: 'Ed25519', namedCurve: 'Ed25519' },
-        false,
-        ['verify']
-      );
-      return await crypto.subtle.verify('Ed25519', key, hexToUint8Array(signature), message);
-    } catch (fallbackErr) {
-      return false;
-    }
+    return isVerified;
+  } catch (e) {
+    return false;
   }
 }
 
