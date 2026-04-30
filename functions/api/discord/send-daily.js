@@ -144,7 +144,7 @@ export async function onRequestPost({ request, env }) {
             // Kita sematkan ping asli di belakang secara tersembunyi/kecil jika perlu, 
             // tapi karena Discord akan memunculkan @, kita hilangkan saja ping aslinya.
             // Biarkan pesan hanya teks biasa agar tidak memunculkan @nazuna
-            content: `Pagi Sayang aku ❤️ ${displayName}`,
+            content: `Pagi Sayang aku ❤️ <@${mentionUser}>`,
             embeds: [embed]
         };
 
