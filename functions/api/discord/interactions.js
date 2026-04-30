@@ -1,4 +1,36 @@
-import { verifyKey } from 'discord-interactions';
+function hexToUint8Array(hex) {
+  return new Uint8Array(hex.match(/.{1,2}/g).map(byte => parseInt(byte, 16)));
+}
+
+async function verifyDiscordSignature(body, signature, timestamp, publicKey) {
+  try {
+    const encoder = new TextEncoder();
+    const message = encoder.encode(timestamp + body);
+    const key = await crypto.subtle.importKey(
+      'raw',
+      hexToUint8Array(publicKey),
+      { name: 'NODE-ED25519', namedCurve: 'NODE-ED25519' },
+      false,
+      ['verify']
+    );
+    return await crypto.subtle.verify('NODE-ED25519', key, hexToUint8Array(signature), message);
+  } catch (err) {
+    try {
+      const encoder = new TextEncoder();
+      const message = encoder.encode(timestamp + body);
+      const key = await crypto.subtle.importKey(
+        'raw',
+        hexToUint8Array(publicKey),
+        { name: 'Ed25519', namedCurve: 'Ed25519' },
+        false,
+        ['verify']
+      );
+      return await crypto.subtle.verify('Ed25519', key, hexToUint8Array(signature), message);
+    } catch (fallbackErr) {
+      return false;
+    }
+  }
+}
 
 export async function onRequestPost({ request, env }) {
   const signature = request.headers.get('x-signature-ed25519');
@@ -11,7 +43,7 @@ export async function onRequestPost({ request, env }) {
   const bodyText = await request.text();
 
   // Validate request using Discord Public Key
-  const isValidRequest = verifyKey(
+  const isValidRequest = await verifyDiscordSignature(
     bodyText,
     signature,
     timestamp,
