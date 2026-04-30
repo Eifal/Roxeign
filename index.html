@@ -165,39 +165,36 @@
         // ─── Load daily fact (Sync with Discord) ───
         async function loadDailyFact() {
             const today = getFactDay();
-            const cachedDay = localStorage.getItem('dailyFactDay');
-            const cachedFact = localStorage.getItem('dailyFact');
-            const cachedCatKey = localStorage.getItem('dailyFactCat');
-
-            // Jika sudah ada di cache lokal untuk hari ini, tampilkan langsung
-            if (cachedDay === today && cachedFact) {
-                const cat = CATEGORIES.find(c => c.key === cachedCatKey) || CATEGORIES[0];
-                displayFact(cachedFact, cat);
-                factNumber.textContent = `#${factCount}`;
-                console.log('Showing cached daily fact');
-                return;
-            }
-
-            // Jika hari baru atau belum ada cache, ambil dari Server (Sinkron Discord)
+            
             try {
                 showLoading(true);
+                // Selalu coba ambil data terbaru dari Server (Discord)
                 const response = await fetch('/api/daily-fact');
                 if (!response.ok) throw new Error('No global daily fact yet');
                 
                 const data = await response.json();
                 
-                // Simpan ke cache lokal
+                // Update cache lokal jika data dari server berbeda atau hari baru
                 localStorage.setItem('dailyFact', data.text);
                 localStorage.setItem('dailyFactCat', data.category.key);
                 localStorage.setItem('dailyFactDay', today);
                 
                 displayFact(data.text, data.category);
-                showToast('Fakta harian sinkron dengan Discord!', 'success');
+                console.log('Sync complete: Daily fact updated from server');
             } catch (error) {
-                console.warn('Fallback to local generation:', error);
-                // Jika server belum punya fakta harian (bot belum jalan),
-                // Jangan lakukan apa-apa atau tampilkan pesan instruksi
-                displayFact("Belum ada fakta harian untuk hari ini. Tunggu bot Discord mengirim pesan!", CATEGORIES[0]);
+                console.warn('Sync failed, using local cache:', error);
+                
+                // Jika server gagal/kosong, baru gunakan cache lokal lama
+                const cachedDay = localStorage.getItem('dailyFactDay');
+                const cachedFact = localStorage.getItem('dailyFact');
+                const cachedCatKey = localStorage.getItem('dailyFactCat');
+
+                if (cachedDay === today && cachedFact) {
+                    const cat = CATEGORIES.find(c => c.key === cachedCatKey) || CATEGORIES[0];
+                    displayFact(cachedFact, cat);
+                } else {
+                    displayFact("Belum ada fakta harian. Tunggu bot Discord mengirim pesan pagi ini!", CATEGORIES[0]);
+                }
             } finally {
                 showLoading(false);
             }
