@@ -1,11 +1,20 @@
-const CATEGORIES = ['Sains', 'Sejarah', 'Alam', 'Luar Angkasa', 'Hewan', 'Tubuh Manusia', 'Teknologi', 'Geografi'];
+const CATEGORIES = [
+    { key: 'sains', icon: '🔬', label: 'Sains', color: 0x3b82f6 }, // blue-500
+    { key: 'sejarah', icon: '📜', label: 'Sejarah', color: 0xeab308 }, // yellow-500
+    { key: 'alam', icon: '🌿', label: 'Alam', color: 0x22c55e }, // green-500
+    { key: 'luar angkasa', icon: '🚀', label: 'Luar Angkasa', color: 0xa855f7 }, // purple-500
+    { key: 'hewan', icon: '🐾', label: 'Hewan', color: 0xf97316 }, // orange-500
+    { key: 'tubuh', icon: '🧬', label: 'Tubuh Manusia', color: 0xef4444 }, // red-500
+    { key: 'teknologi', icon: '💡', label: 'Teknologi', color: 0x06b6d4 }, // cyan-500
+    { key: 'geografi', icon: '🌍', label: 'Geografi', color: 0x64748b }, // slate-500
+];
 
 /**
  * Memanggil Gemini API untuk mendapatkan fakta
  */
 async function getFactFromGemini(apiKey) {
     const category = CATEGORIES[Math.floor(Math.random() * CATEGORIES.length)];
-    const prompt = `Berikan SATU fakta unik tentang ${category}. Tulis persis 1 kalimat lengkap yang harus diakhiri dengan tanda titik (.). JANGAN SAMPAI KALIMAT TERPOTONG DI TENGAH. Jangan gunakan markdown atau kata pembuka.`;
+    const prompt = `Berikan SATU fakta unik tentang ${category.label}. Tulis persis 1 kalimat lengkap yang harus diakhiri dengan tanda titik (.). JANGAN SAMPAI KALIMAT TERPOTONG DI TENGAH. Jangan gunakan markdown atau kata pembuka.`;
 
     const GEMINI_MODEL = 'gemini-2.5-flash';
     const GEMINI_URL = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${apiKey}`;
@@ -32,49 +41,68 @@ async function getFactFromGemini(apiKey) {
     }
 
     const data = await response.json();
-    return data.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
+    const factText = data.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
+    
+    return { text: factText, category };
+}
+
+function cleanSenderName(name) {
+    if (!name) return 'Roxeign Bot';
+    // Jika user ngetag nama (format: <@1234567>), kita ganti jadi string statis
+    // Karena Embed Footer tidak mendukung tag/mention Discord.
+    if (name.includes('<@')) {
+        return 'Kekasihmu';
+    }
+    return name;
 }
 
 /**
  * Endpoint Utama untuk mengirim pesan harian (Ditrigger oleh GitHub Actions)
  */
 export async function onRequestPost({ request, env }) {
-    // 1. Verifikasi Token Rahasia (agar tidak sembarang orang bisa nge-trigger)
     const authHeader = request.headers.get('Authorization');
     if (authHeader !== `Bearer ${env.CRON_SECRET}`) {
         return new Response('Unauthorized', { status: 401 });
     }
 
     if (!env.GEMINI_API_KEY || !env.DISCORD_BOT_TOKEN) {
-        return Response.json({ error: "Environment variables (GEMINI_API_KEY or DISCORD_BOT_TOKEN) are missing in Preview environment!" }, { status: 500 });
+        return Response.json({ error: "Environment variables missing!" }, { status: 500 });
     }
 
     try {
-        // 2. Ambil konfigurasi dari KV (yang disetup via Slash Command)
         const configStr = await env.FACTS_KV.get('DISCORD_CONFIG');
         if (!configStr) {
-            return new Response('Discord config not found. Please run /setup in Discord first.', { status: 400 });
+            return new Response('Discord config not found', { status: 400 });
         }
         
         const config = JSON.parse(configStr);
         const { channelId, mentionUser, senderName } = config;
 
-        // 3. Ambil Fakta dari Gemini
-        const fact = await getFactFromGemini(env.GEMINI_API_KEY);
-        if (!fact) {
+        const factData = await getFactFromGemini(env.GEMINI_API_KEY);
+        if (!factData || !factData.text) {
             return new Response('Failed to generate fact', { status: 500 });
         }
 
-        // 4. Bangun Discord Rich Embed
+        const safeSender = cleanSenderName(senderName);
+
+        // Bangun Discord Rich Embed yang lebih cantik
         const embed = {
-            title: "🌟 Fun Fact Hari Ini!",
-            description: `> ${fact}`,
-            color: 0x2563EB, // Warna biru (primary)
+            author: {
+                name: `Fakta ${factData.category.label} Hari Ini!`,
+            },
+            title: `${factData.category.icon} Tahukah Kamu?`,
+            description: `**${factData.text}**`,
+            color: factData.category.color,
             footer: {
-                text: `Dikirim dari ${senderName || 'Roxeign Bot'} 🤖`
+                text: `✨ Dikirim dari ${safeSender} • Daily Fun Facts`,
+                // Ikon hati kecil di footer
+                icon_url: 'https://cdn.discordapp.com/emojis/1094713437503901767.webp' // placeholder
             },
             timestamp: new Date().toISOString()
         };
+
+        // Menghilangkan icon URL yang mungkin broken jika emoji custom tidak ada
+        delete embed.footer.icon_url;
 
         const payload = {
             content: `Pagi Sayang aku <@${mentionUser}> ❤️`,
