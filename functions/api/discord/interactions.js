@@ -107,7 +107,7 @@ export async function onRequestPost({ request, env }) {
       return Response.json({
         type: 4, // InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE
         data: {
-          content: `✅ Setup berhasil disimpan!\n**Channel:** <#${channelId}>\n**Mention:** <@${mentionUser}>\n**Sender:** ${senderName}`,
+          content: `✅ Setup berhasil disimpan!\n**Channel:** <#${channelId}>\n**Mention:** <@${mentionUser}>\n**Sender:** ${senderName}\n**Jadwal:** Setiap jam ${setupTime}:00 WIB`,
           flags: 64 // Ephemeral (hanya dilihat oleh orang yang mengeksekusi)
         }
       });
