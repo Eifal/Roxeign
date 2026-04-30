@@ -31,6 +31,12 @@ const commands = [
         description: 'Nama pengirim di bagian bawah pesan (opsional, default: Bot)',
         type: 3, // STRING
         required: false,
+      },
+      {
+        name: 'time',
+        description: 'Jam berapa fakta dikirim (0-23, contoh: 7 untuk jam 7 pagi)',
+        type: 4, // INTEGER
+        required: false,
       }
     ]
   }

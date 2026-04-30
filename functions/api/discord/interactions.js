@@ -74,6 +74,7 @@ export async function onRequestPost({ request, env }) {
       let mentionUser = '';
       let mentionName = '';
       let senderName = 'Bot';
+      let setupTime = 6; // Default jam 6 pagi
 
       if (options) {
         for (const opt of options) {
@@ -87,6 +88,7 @@ export async function onRequestPost({ request, env }) {
             }
           }
           if (opt.name === 'sender') senderName = opt.value;
+          if (opt.name === 'time') setupTime = opt.value;
         }
       }
 
@@ -95,7 +97,8 @@ export async function onRequestPost({ request, env }) {
         channelId,
         mentionUser,
         mentionName,
-        senderName
+        senderName,
+        setupTime
       };
 
       await env.FACTS_KV.put('DISCORD_CONFIG', JSON.stringify(config));

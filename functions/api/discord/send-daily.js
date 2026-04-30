@@ -119,7 +119,31 @@ export async function onRequestPost({ request, env }) {
         }
         
         const config = JSON.parse(configStr);
-        const { channelId, mentionUser, mentionName, senderName } = config;
+        const { channelId, mentionUser, mentionName, senderName, setupTime } = config;
+
+        // Cek apakah ini trigger terjadwal (misal dari GitHub Actions)
+        // Jika dari curl (manual test), kita bypass pengecekan jam agar user bisa langsung lihat hasilnya.
+        const userAgent = request.headers.get('User-Agent') || '';
+        const isManual = userAgent.toLowerCase().includes('curl');
+
+        if (!isManual) {
+            // Ambil Jam sekarang dalam WIB (GMT+7)
+            const now = new Date();
+            const hourWIB = (now.getUTCHours() + 7) % 24;
+            const targetHour = setupTime !== undefined ? setupTime : 6;
+
+            if (hourWIB !== targetHour) {
+                return Response.json({ success: true, message: `Bukan jadwalnya. Sekarang jam ${hourWIB}, jadwal: ${targetHour}.` });
+            }
+
+            // Mencegah duplikasi kirim di jam yang sama
+            const today = now.toDateString();
+            const lastSent = await env.FACTS_KV.get('LAST_SENT_DATE');
+            if (lastSent === today) {
+                return Response.json({ success: true, message: 'Sudah dikirim untuk hari ini.' });
+            }
+            await env.FACTS_KV.put('LAST_SENT_DATE', today);
+        }
 
         const factData = await getFactFromAI(env);
         if (!factData || !factData.text) {
