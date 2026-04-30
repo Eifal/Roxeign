@@ -93,27 +93,18 @@ export async function onRequestPost({ request, env }) {
 
         const safeSender = cleanSenderName(senderName);
 
-        // Bangun Discord Rich Embed yang lebih cantik
+        const cleanSender = senderName.replace(/[@<>\d]/g, '').trim() || senderName;
+
         const embed = {
-            author: {
-                name: `Fakta ${factData.category.label} Hari Ini!`,
-            },
-            title: `${factData.category.icon} Tahukah Kamu?`,
-            description: `**${factData.text}**`,
+            description: `Fun fact untuk kamu hari ini 😘\n\n**${factData.text}**`,
             color: factData.category.color,
             footer: {
-                text: `✨ Dikirim dari ${safeSender} • Daily Fun Facts`,
-                // Ikon hati kecil di footer
-                icon_url: 'https://cdn.discordapp.com/emojis/1094713437503901767.webp' // placeholder
-            },
-            timestamp: new Date().toISOString()
+                text: `Dikirim oleh kekasih kamu ${cleanSender}`
+            }
         };
 
-        // Menghilangkan icon URL yang mungkin broken jika emoji custom tidak ada
-        delete embed.footer.icon_url;
-
         const payload = {
-            content: `Pagi Sayang aku <@${mentionUser}> ❤️`,
+            content: `Pagi Sayang aku ❤️ <@${mentionUser}>`,
             embeds: [embed]
         };
 
