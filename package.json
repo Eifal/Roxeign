@@ -1,0 +1,13 @@
+{
+  "name": "roxeign",
+  "version": "1.0.0",
+  "description": "Daily Facts - Fakta menarik setiap hari, powered by Google Gemini AI",
+  "private": true,
+  "scripts": {
+    "dev": "npx wrangler pages dev ./ --kv FACTS_KV",
+    "deploy": "npx wrangler pages deploy ./"
+  },
+  "devDependencies": {
+    "wrangler": "^4.14.1"
+  }
+}

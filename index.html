@@ -1,0 +1,492 @@
+<!DOCTYPE html>
+<html lang="id">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description"
+        content="Temukan fakta-fakta menarik dan mengejutkan setiap hari. Dipersembahkan dengan AI dari Google Gemini.">
+    <title>Daily Fun Facts — Fakta Menarik Setiap Hari</title>
+    <link rel="stylesheet" href="style.css">
+    <link rel="icon"
+        href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>✨</text></svg>">
+</head>
+
+<body>
+    <div class="background"></div>
+    <div class="background-grid"></div>
+
+    <div class="container">
+        <header class="header">
+            <div class="logo">
+                <span class="logo-icon">✨</span>
+                <span class="logo-text">Daily Facts</span>
+            </div>
+            <div class="date-display" id="dateDisplay"></div>
+        </header>
+
+        <main class="main-content">
+            <div class="fact-card" id="factCard">
+                <div class="fact-header">
+                    <span class="fact-badge">Fakta Hari Ini</span>
+                    <span class="fact-meta">
+                        <span class="fact-number" id="factNumber">#1</span>
+                        <span class="next-update" id="nextUpdate"></span>
+                    </span>
+                </div>
+
+                <div class="fact-content">
+                    <div class="fact-icon" id="factIcon">🧠</div>
+                    <div class="category-badge" id="categoryBadge">
+                        <span>memuat...</span>
+                    </div>
+                    <p class="fact-text" id="factText">
+                        Memuat fakta harian...
+                    </p>
+                </div>
+
+                <div class="fact-footer">
+                    <button class="refresh-btn" id="refreshBtn" title="Fakta baru">
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                            stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M23 4v6h-6"></path>
+                            <path d="M1 20v-6h6"></path>
+                            <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path>
+                        </svg>
+                        <span>Fakta Baru</span>
+                    </button>
+                    <button class="share-btn" id="shareBtn" title="Bagikan fakta">
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                            stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"></path>
+                            <polyline points="16 6 12 2 8 6"></polyline>
+                            <line x1="12" y1="2" x2="12" y2="15"></line>
+                        </svg>
+                        <span>Bagikan</span>
+                    </button>
+                </div>
+            </div>
+
+            <div class="stats-section">
+                <div class="stat-item">
+                    <span class="stat-value" id="totalFacts">0</span>
+                    <span class="stat-label">Fakta Ditemukan</span>
+                </div>
+                <div class="stat-item">
+                    <span class="stat-value" id="streak">0</span>
+                    <span class="stat-label">Streak Hari</span>
+                </div>
+            </div>
+        </main>
+
+        <footer class="footer">
+            <p>Dipersembahkan oleh Google Gemini AI ⚡</p>
+        </footer>
+    </div>
+
+    <div class="loading-overlay" id="loadingOverlay">
+        <div class="loading-spinner"></div>
+        <p>Menghasilkan fakta menarik...</p>
+    </div>
+
+    <div class="toast" id="toast"></div>
+
+    <script>
+        // ─── Configuration ───
+        // API calls are proxied through Cloudflare Pages Function (/api/fact)
+        // API key is stored securely in Cloudflare Secrets — never exposed here
+        const API_ENDPOINT = '/api/fact';
+        const LOADING_TIMEOUT_MS = 15000; // 15 second safety timeout
+
+        // ─── DOM Elements ───
+        const factText = document.getElementById('factText');
+        const factNumber = document.getElementById('factNumber');
+        const factIcon = document.getElementById('factIcon');
+        const categoryBadge = document.getElementById('categoryBadge');
+        const refreshBtn = document.getElementById('refreshBtn');
+        const shareBtn = document.getElementById('shareBtn');
+        const dateDisplay = document.getElementById('dateDisplay');
+        const loadingOverlay = document.getElementById('loadingOverlay');
+        const totalFactsEl = document.getElementById('totalFacts');
+        const streakEl = document.getElementById('streak');
+        const toastEl = document.getElementById('toast');
+
+        // ─── Category definitions ───
+        const CATEGORIES = [
+            { key: 'sains', icon: '🔬', label: 'Sains' },
+            { key: 'sejarah', icon: '📜', label: 'Sejarah' },
+            { key: 'alam', icon: '🌿', label: 'Alam' },
+            { key: 'luar angkasa', icon: '🚀', label: 'Luar Angkasa' },
+            { key: 'hewan', icon: '🐾', label: 'Hewan' },
+            { key: 'tubuh', icon: '🧬', label: 'Tubuh Manusia' },
+            { key: 'teknologi', icon: '💡', label: 'Teknologi' },
+            { key: 'geografi', icon: '🌍', label: 'Geografi' },
+        ];
+
+        // ─── State ───
+        let factCount = parseInt(localStorage.getItem('factCount') || '0');
+        let lastVisit = localStorage.getItem('lastVisit');
+        let streak = parseInt(localStorage.getItem('streak') || '0');
+        let isLoading = false;
+        let loadingTimer = null;
+        let countdownTimer = null;
+        const DAILY_HOUR = 6; // Update setiap jam 6 pagi
+
+        // ─── Daily schedule helpers ───
+        // "Fact day" = hari dimulai jam 6 pagi (sebelum jam 6 = masih hari kemarin)
+        function getFactDay(date = new Date()) {
+            const d = new Date(date);
+            if (d.getHours() < DAILY_HOUR) d.setDate(d.getDate() - 1);
+            return d.toDateString();
+        }
+
+        function getNext6AM() {
+            const now = new Date();
+            const next = new Date(now);
+            next.setHours(DAILY_HOUR, 0, 0, 0);
+            if (now >= next) next.setDate(next.getDate() + 1);
+            return next;
+        }
+
+        function msUntilNext6AM() {
+            return getNext6AM().getTime() - Date.now();
+        }
+
+        // ─── Initialize ───
+        function init() {
+            updateDate();
+            checkStreak();
+            updateStats();
+            loadDailyFact();
+            scheduleNext6AM();
+            startCountdown();
+        }
+
+        // ─── Load daily fact (with cache) ───
+        function loadDailyFact() {
+            const today = getFactDay();
+            const cachedDay = localStorage.getItem('dailyFactDay');
+            const cachedFact = localStorage.getItem('dailyFact');
+            const cachedCatKey = localStorage.getItem('dailyFactCat');
+
+            if (cachedDay === today && cachedFact) {
+                // Tampilkan fakta hari ini dari cache
+                const cat = CATEGORIES.find(c => c.key === cachedCatKey) || CATEGORIES[0];
+                displayFact(cachedFact, cat);
+                factNumber.textContent = `#${factCount}`;
+                console.log('Showing cached daily fact');
+            } else {
+                // Hari baru → ambil fakta baru
+                loadFact();
+            }
+        }
+
+        // ─── Schedule auto-refresh at next 6 AM ───
+        function scheduleNext6AM() {
+            const ms = msUntilNext6AM();
+            console.log(`Next fact update in ${Math.round(ms / 60000)} minutes`);
+            setTimeout(() => {
+                console.log('⏰ 6 AM — fetching new daily fact');
+                loadFact();
+                scheduleNext6AM(); // schedule next day
+                startCountdown();
+            }, ms);
+        }
+
+        // ─── Countdown display ───
+        function startCountdown() {
+            clearInterval(countdownTimer);
+            updateCountdownDisplay();
+            countdownTimer = setInterval(updateCountdownDisplay, 60000); // update tiap menit
+        }
+
+        function updateCountdownDisplay() {
+            const ms = msUntilNext6AM();
+            const hours = Math.floor(ms / 3600000);
+            const mins = Math.floor((ms % 3600000) / 60000);
+            const el = document.getElementById('nextUpdate');
+            if (el) {
+                el.textContent = `⏳ ${hours}j ${mins}m`;
+                el.title = `Fakta baru jam ${DAILY_HOUR}:00 pagi`;
+            }
+        }
+
+        // ─── Date display ───
+        function updateDate() {
+            const now = new Date();
+            dateDisplay.textContent = now.toLocaleDateString('id-ID', {
+                weekday: 'long',
+                year: 'numeric',
+                month: 'long',
+                day: 'numeric'
+            });
+        }
+
+        // ─── Streak logic ───
+        function checkStreak() {
+            const today = new Date().toDateString();
+            const yesterday = new Date(Date.now() - 86400000).toDateString();
+
+            if (lastVisit === today) {
+                // Already visited today — no change
+            } else if (lastVisit === yesterday) {
+                streak++;
+                localStorage.setItem('streak', streak.toString());
+            } else {
+                streak = 1;
+                localStorage.setItem('streak', streak.toString());
+            }
+
+            localStorage.setItem('lastVisit', today);
+        }
+
+        // ─── Stats display ───
+        function updateStats() {
+            animateCounter(totalFactsEl, factCount);
+            animateCounter(streakEl, streak);
+        }
+
+        function animateCounter(el, target) {
+            const current = parseInt(el.textContent) || 0;
+            if (current === target) { el.textContent = target; return; }
+            const diff = target - current;
+            const steps = Math.min(Math.abs(diff), 20);
+            const stepTime = 300 / steps;
+            let step = 0;
+            const timer = setInterval(() => {
+                step++;
+                el.textContent = Math.round(current + (diff * step / steps));
+                if (step >= steps) clearInterval(timer);
+            }, stepTime);
+        }
+
+        // ─── Toast notifications ───
+        function showToast(message, type = 'info') {
+            toastEl.textContent = message;
+            toastEl.className = `toast toast-${type} show`;
+            setTimeout(() => { toastEl.classList.remove('show'); }, 3000);
+        }
+
+        // ─── Loading control ───
+        function showLoading(show) {
+            loadingOverlay.style.display = show ? 'flex' : 'none';
+
+            if (show) {
+                refreshBtn.classList.add('loading');
+                refreshBtn.disabled = true;
+
+                // Safety timeout — force hide after LOADING_TIMEOUT_MS
+                clearTimeout(loadingTimer);
+                loadingTimer = setTimeout(() => {
+                    if (isLoading) {
+                        isLoading = false;
+                        showLoading(false);
+                        showToast('⏱ Timeout — menampilkan fakta offline', 'error');
+                        displayFallbackFact();
+                    }
+                }, LOADING_TIMEOUT_MS);
+            } else {
+                refreshBtn.classList.remove('loading');
+                refreshBtn.disabled = false;
+                clearTimeout(loadingTimer);
+            }
+        }
+
+        // ─── Load fact via secure API proxy ───
+        async function loadFact() {
+            if (isLoading) return;
+            isLoading = true;
+            showLoading(true);
+
+            // Pick random category for variety
+            const category = CATEGORIES[Math.floor(Math.random() * CATEGORIES.length)];
+
+            try {
+                const response = await fetch(`${API_ENDPOINT}?cat=${encodeURIComponent(category.key)}`);
+
+                if (!response.ok) {
+                    const errData = await response.json().catch(() => ({}));
+                    console.error('API error:', response.status, errData);
+
+                    if (response.status === 429) {
+                        showToast('⏳ Terlalu banyak request — coba lagi nanti', 'error');
+                    } else if (response.status === 503) {
+                        showToast('📊 Kuota harian tercapai — menampilkan fakta offline', 'info');
+                    } else {
+                        showToast('🌐 API error — menampilkan fakta offline', 'error');
+                    }
+
+                    displayFallbackFact();
+                    isLoading = false;
+                    showLoading(false);
+                    return;
+                }
+
+                const data = await response.json();
+
+                if (data.fact && data.fact.trim().length > 15) {
+                    const cleaned = cleanFactText(data.fact);
+
+                    factCount++;
+                    localStorage.setItem('factCount', factCount.toString());
+
+                    // Use category from server response if available
+                    const cat = CATEGORIES.find(c => c.key === data.category) || category;
+                    saveDailyFact(cleaned, cat);
+                    displayFact(cleaned, cat);
+                    updateStats();
+                } else {
+                    console.warn('Empty response from API');
+                    showToast('🔄 Respons kosong — menampilkan fakta offline', 'info');
+                    displayFallbackFact();
+                }
+
+            } catch (error) {
+                console.error('Fetch error:', error);
+                showToast('🌐 Koneksi gagal — menampilkan fakta offline', 'error');
+                displayFallbackFact();
+            }
+
+            isLoading = false;
+            showLoading(false);
+        }
+
+        // ─── Cache daily fact ───
+        function saveDailyFact(fact, category) {
+            const today = getFactDay();
+            if (fact) {
+                localStorage.setItem('dailyFact', fact);
+                localStorage.setItem('dailyFactDay', today);
+                localStorage.setItem('dailyFactCat', category.key);
+            }
+        }
+
+        // ─── Clean response text ───
+        function cleanFactText(text) {
+            return text
+                .trim()
+                .replace(/^[\s\n.,:;!?*#\-]+/, '')           // leading noise
+                .replace(/\*\*/g, '')                          // remove markdown bold
+                .replace(/\*/g, '')                            // remove markdown italic
+                .replace(/\n+/g, ' ')                          // newlines → space
+                .replace(/\s{2,}/g, ' ')                       // collapse spaces
+                .replace(/^(fakta menarik|tahukah anda|berikut)[:\s]*/i, '') // remove common prefixes
+                .trim();
+        }
+
+        // ─── Display fact with animation ───
+        function displayFact(fact, category) {
+            const cat = category || CATEGORIES[Math.floor(Math.random() * CATEGORIES.length)];
+
+            factText.style.opacity = '0';
+            factText.style.transform = 'translateY(16px)';
+            factIcon.style.opacity = '0';
+
+            setTimeout(() => {
+                factText.textContent = fact;
+                factNumber.textContent = `#${factCount}`;
+                factIcon.textContent = cat.icon;
+                categoryBadge.innerHTML = `<span>${cat.icon} ${cat.label}</span>`;
+
+                factText.style.opacity = '1';
+                factText.style.transform = 'translateY(0)';
+                factIcon.style.opacity = '1';
+            }, 280);
+        }
+
+        // ─── Fallback facts ───
+        const FALLBACK_FACTS = [
+            { text: "Madu tidak pernah basi. Arkeolog menemukan pot madu di makam Mesir kuno berusia lebih dari 3.000 tahun dan masih bisa dimakan.", cat: 'sains' },
+            { text: "Gurita memiliki tiga jantung dan darah berwarna biru. Dua jantung memompa darah ke insang, sedangkan jantung ketiga memompanya ke seluruh tubuh.", cat: 'hewan' },
+            { text: "Satu hari di Venus lebih panjang dari setahunnya. Venus butuh 243 hari Bumi untuk berputar sekali, tetapi hanya 225 hari untuk mengorbit Matahari.", cat: 'luar angkasa' },
+            { text: "Pisang secara botani adalah berry, tetapi stroberi bukan. Berry sejati berkembang dari satu bunga dengan satu ovarium, yang tidak dimiliki stroberi.", cat: 'sains' },
+            { text: "Perang terpendek dalam sejarah berlangsung hanya 38 menit antara Inggris dan Zanzibar pada tahun 1896. Zanzibar menyerah sebelum satu jam berlalu.", cat: 'sejarah' },
+            { text: "Sapi punya sahabat karib dan mengalami stres saat dipisahkan. Riset menunjukkan mereka membentuk ikatan sosial yang kuat dan memilih teman tertentu.", cat: 'hewan' },
+            { text: "Aroma tanah setelah hujan berasal dari bakteri aktinomiset yang melepaskan senyawa geosmin ke udara. Hidung manusia sangat sensitif terhadap senyawa ini.", cat: 'alam' },
+            { text: "Sekumpulan flamingo disebut 'flamboyance'. Burung sosial ini hidup dalam koloni ribuan ekor dan mampu mengenali individu lain secara spesifik.", cat: 'hewan' },
+            { text: "Neutron star begitu padat hingga satu sendok teh materinya memiliki berat sekitar 6 miliar ton, setara dengan berat Gunung Everest.", cat: 'luar angkasa' },
+            { text: "Hutan Amazon menghasilkan sekitar 20% oksigen dunia dan merupakan rumah bagi 10% dari seluruh spesies yang diketahui di Bumi.", cat: 'alam' },
+            { text: "Sidik jari koala hampir identik dengan sidik jari manusia, bahkan bisa membingungkan penyelidik forensik di bawah mikroskop.", cat: 'hewan' },
+            { text: "DNA manusia 99,9% identik satu sama lain. Variasi 0,1% itulah yang membuat setiap orang unik, termasuk warna mata, tinggi badan, dan kerentanan penyakit.", cat: 'tubuh' },
+            { text: "Tembok Besar Tiongkok bukan satu tembok tunggal, melainkan jaringan banyak dinding dan benteng yang dibangun selama lebih dari 2.000 tahun oleh berbagai dinasti.", cat: 'sejarah' },
+            { text: "Otak manusia menggunakan sekitar 20% total energi tubuh meskipun hanya memiliki berat sekitar 2% dari berat badan keseluruhan.", cat: 'tubuh' },
+            { text: "Danau Baikal di Rusia menyimpan sekitar 20% air tawar permukaan dunia yang tidak beku. Kedalamannya mencapai 1.642 meter, menjadikannya danau terdalam di Bumi.", cat: 'geografi' },
+            { text: "Komputer pertama di dunia, ENIAC, memiliki berat 27 ton dan membutuhkan ruangan seluas 167 meter persegi. Kini ponsel di saku Anda jutaan kali lebih kuat.", cat: 'teknologi' },
+            { text: "Pohon tertua di dunia bernama Methuselah, pohon pinus bristlecone berusia lebih dari 4.850 tahun yang tumbuh di Pegunungan White, California.", cat: 'alam' },
+            { text: "Mata elang bisa melihat mangsa dari jarak 3 kilometer. Resolusi penglihatan mereka sekitar 4-8 kali lebih tajam dibanding penglihatan manusia.", cat: 'hewan' },
+            { text: "Pluto belum menyelesaikan satu orbit penuh mengelilingi Matahari sejak penemuannya pada 1930. Satu tahun Pluto setara dengan 248 tahun Bumi.", cat: 'luar angkasa' },
+            { text: "Sumeria kuno di Mesopotamia menciptakan sistem penulisan pertama sekitar 3.400 SM. Tulisan paku (cuneiform) ini ditulis pada lempengan tanah liat basah.", cat: 'sejarah' },
+        ];
+
+        let lastFallbackIndex = -1;
+
+        function displayFallbackFact() {
+            let idx;
+            do {
+                idx = Math.floor(Math.random() * FALLBACK_FACTS.length);
+            } while (idx === lastFallbackIndex && FALLBACK_FACTS.length > 1);
+            lastFallbackIndex = idx;
+
+            const entry = FALLBACK_FACTS[idx];
+            const category = CATEGORIES.find(c => c.key === entry.cat) || CATEGORIES[0];
+
+            factCount++;
+            localStorage.setItem('factCount', factCount.toString());
+
+            displayFact(entry.text, category);
+            updateStats();
+        }
+
+        // ─── Share ───
+        function shareFact() {
+            const fact = factText.textContent;
+            if (!fact || fact === 'Memuat fakta harian...') {
+                showToast('⏳ Tunggu fakta dimuat dulu', 'info');
+                return;
+            }
+
+            const text = `🧠 Fakta Menarik:\n\n${fact}\n\n✨ Temukan lebih banyak di Daily Facts!`;
+
+            if (navigator.share) {
+                navigator.share({ title: 'Daily Fun Fact', text })
+                    .catch(() => { });
+            } else if (navigator.clipboard) {
+                navigator.clipboard.writeText(text).then(() => {
+                    showToast('📋 Fakta disalin ke clipboard!', 'success');
+                }).catch(() => {
+                    showToast('❌ Gagal menyalin', 'error');
+                });
+            } else {
+                // Ultimate fallback
+                const ta = document.createElement('textarea');
+                ta.value = text;
+                document.body.appendChild(ta);
+                ta.select();
+                document.execCommand('copy');
+                document.body.removeChild(ta);
+                showToast('📋 Fakta disalin ke clipboard!', 'success');
+            }
+        }
+
+        // ─── Event listeners ───
+        refreshBtn.addEventListener('click', () => {
+            // Manual click = force fresh fact (bypass cache)
+            loadFact();
+        });
+        shareBtn.addEventListener('click', shareFact);
+
+        // Keyboard shortcut: Space or R for new fact
+        document.addEventListener('keydown', (e) => {
+            if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+            if (e.key === ' ' || e.key === 'r' || e.key === 'R') {
+                e.preventDefault();
+                loadFact();
+            }
+        });
+
+        // ─── Start ───
+        init();
+    </script>
+</body>
+
+</html>
