@@ -148,7 +148,13 @@ export async function onRequestPost({ request, env }) {
             embeds: [embed]
         };
 
-        // 5. Kirim ke Discord API
+        // 4. Simpan ke KV sebagai "Fakta Global Hari Ini" untuk sinkronisasi dengan Web
+        await env.FACTS_KV.put('GLOBAL_DAILY_FACT', JSON.stringify({
+            text: factData.text,
+            category: factData.category,
+            date: new Date().toDateString()
+        }));
+
         const discordResponse = await fetch(`https://discord.com/api/v10/channels/${channelId}/messages`, {
             method: 'POST',
             headers: {

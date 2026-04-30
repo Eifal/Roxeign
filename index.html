@@ -162,22 +162,44 @@
             startCountdown();
         }
 
-        // ─── Load daily fact (with cache) ───
-        function loadDailyFact() {
+        // ─── Load daily fact (Sync with Discord) ───
+        async function loadDailyFact() {
             const today = getFactDay();
             const cachedDay = localStorage.getItem('dailyFactDay');
             const cachedFact = localStorage.getItem('dailyFact');
             const cachedCatKey = localStorage.getItem('dailyFactCat');
 
+            // Jika sudah ada di cache lokal untuk hari ini, tampilkan langsung
             if (cachedDay === today && cachedFact) {
-                // Tampilkan fakta hari ini dari cache
                 const cat = CATEGORIES.find(c => c.key === cachedCatKey) || CATEGORIES[0];
                 displayFact(cachedFact, cat);
                 factNumber.textContent = `#${factCount}`;
                 console.log('Showing cached daily fact');
-            } else {
-                // Hari baru → ambil fakta baru
-                loadFact();
+                return;
+            }
+
+            // Jika hari baru atau belum ada cache, ambil dari Server (Sinkron Discord)
+            try {
+                showLoading(true);
+                const response = await fetch('/api/daily-fact');
+                if (!response.ok) throw new Error('No global daily fact yet');
+                
+                const data = await response.json();
+                
+                // Simpan ke cache lokal
+                localStorage.setItem('dailyFact', data.text);
+                localStorage.setItem('dailyFactCat', data.category.key);
+                localStorage.setItem('dailyFactDay', today);
+                
+                displayFact(data.text, data.category);
+                showToast('Fakta harian sinkron dengan Discord!', 'success');
+            } catch (error) {
+                console.warn('Fallback to local generation:', error);
+                // Jika server belum punya fakta harian (bot belum jalan),
+                // Jangan lakukan apa-apa atau tampilkan pesan instruksi
+                displayFact("Belum ada fakta harian untuk hari ini. Tunggu bot Discord mengirim pesan!", CATEGORIES[0]);
+            } finally {
+                showLoading(false);
             }
         }
 
@@ -187,7 +209,7 @@
             console.log(`Next fact update in ${Math.round(ms / 60000)} minutes`);
             setTimeout(() => {
                 console.log('⏰ 6 AM — fetching new daily fact');
-                loadFact();
+                loadDailyFact(); // Gunakan loadDailyFact agar sinkron dengan Discord
                 scheduleNext6AM(); // schedule next day
                 startCountdown();
             }, ms);
