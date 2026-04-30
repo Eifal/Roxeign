@@ -72,12 +72,20 @@ export async function onRequestPost({ request, env }) {
       const options = interaction.data.options;
       let channelId = '';
       let mentionUser = '';
+      let mentionName = '';
       let senderName = 'Bot';
 
       if (options) {
         for (const opt of options) {
           if (opt.name === 'channel') channelId = opt.value;
-          if (opt.name === 'mention') mentionUser = opt.value;
+          if (opt.name === 'mention') {
+            mentionUser = opt.value;
+            // Ambil nama asli/display name dari payload Discord
+            const resolvedUsers = interaction.data.resolved?.users;
+            if (resolvedUsers && resolvedUsers[mentionUser]) {
+              mentionName = resolvedUsers[mentionUser].global_name || resolvedUsers[mentionUser].username;
+            }
+          }
           if (opt.name === 'sender') senderName = opt.value;
         }
       }
@@ -86,6 +94,7 @@ export async function onRequestPost({ request, env }) {
       const config = {
         channelId,
         mentionUser,
+        mentionName,
         senderName
       };
 

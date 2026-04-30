@@ -84,7 +84,7 @@ export async function onRequestPost({ request, env }) {
         }
         
         const config = JSON.parse(configStr);
-        const { channelId, mentionUser, senderName } = config;
+        const { channelId, mentionUser, mentionName, senderName } = config;
 
         const factData = await getFactFromGemini(env.GEMINI_API_KEY);
         if (!factData || !factData.text) {
@@ -92,8 +92,10 @@ export async function onRequestPost({ request, env }) {
         }
 
         const safeSender = cleanSenderName(senderName);
-
-        const cleanSender = senderName.replace(/[@<>\d]/g, '').trim() || senderName;
+        const cleanSender = safeSender.replace(/[@<>\d]/g, '').trim() || safeSender;
+        
+        // Tampilkan nama tanpa @. Jika belum setup ulang, fallback ke kata romantis atau format biasa.
+        const displayName = mentionName || "Sayang";
 
         const embed = {
             description: `Fun fact untuk kamu hari ini 😘\n\n**${factData.text}**`,
@@ -104,7 +106,10 @@ export async function onRequestPost({ request, env }) {
         };
 
         const payload = {
-            content: `Pagi Sayang aku ❤️ <@${mentionUser}>`,
+            // Kita sematkan ping asli di belakang secara tersembunyi/kecil jika perlu, 
+            // tapi karena Discord akan memunculkan @, kita hilangkan saja ping aslinya.
+            // Biarkan pesan hanya teks biasa agar tidak memunculkan @nazuna
+            content: `Pagi Sayang aku ❤️ ${displayName}`,
             embeds: [embed]
         };
 
