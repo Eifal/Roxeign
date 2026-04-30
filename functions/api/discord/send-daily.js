@@ -7,7 +7,7 @@ async function getFactFromGemini(apiKey) {
     const category = CATEGORIES[Math.floor(Math.random() * CATEGORIES.length)];
     const prompt = `Berikan SATU fakta unik tentang ${category}. Tulis persis 1 kalimat lengkap yang harus diakhiri dengan tanda titik (.). JANGAN SAMPAI KALIMAT TERPOTONG DI TENGAH. Jangan gunakan markdown atau kata pembuka.`;
 
-    const GEMINI_MODEL = 'gemini-3-flash-preview';
+    const GEMINI_MODEL = 'gemini-2.5-flash';
     const GEMINI_URL = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${apiKey}`;
 
     const response = await fetch(GEMINI_URL, {
@@ -27,7 +27,8 @@ async function getFactFromGemini(apiKey) {
     });
 
     if (!response.ok) {
-        throw new Error(`Gemini API Error: ${response.status}`);
+        const errText = await response.text();
+        throw new Error(`Gemini API Error: ${response.status} - ${errText}`);
     }
 
     const data = await response.json();
@@ -42,6 +43,10 @@ export async function onRequestPost({ request, env }) {
     const authHeader = request.headers.get('Authorization');
     if (authHeader !== `Bearer ${env.CRON_SECRET}`) {
         return new Response('Unauthorized', { status: 401 });
+    }
+
+    if (!env.GEMINI_API_KEY || !env.DISCORD_BOT_TOKEN) {
+        return Response.json({ error: "Environment variables (GEMINI_API_KEY or DISCORD_BOT_TOKEN) are missing in Preview environment!" }, { status: 500 });
     }
 
     try {
