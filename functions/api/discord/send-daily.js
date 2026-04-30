@@ -9,12 +9,6 @@ const CATEGORIES = [
     { key: 'geografi', icon: '🌍', label: 'Geografi', color: 0x64748b }, // slate-500
 ];
 
-/**
- * Memanggil Gemini API untuk mendapatkan fakta
- */
-async function getFactFromGemini(apiKey) {
-    const category = CATEGORIES[Math.floor(Math.random() * CATEGORIES.length)];
-    const prompt = `Berikan SATU fakta unik tentang ${category.label}. Tulis persis 1 kalimat lengkap yang harus diakhiri dengan tanda titik (.). JANGAN SAMPAI KALIMAT TERPOTONG DI TENGAH. Jangan gunakan markdown atau kata pembuka.`;
 
 /**
  * Sistem Pengambil Fakta dengan Fallback Berlapis (Google & Hugging Face)
