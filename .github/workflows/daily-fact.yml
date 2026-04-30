@@ -1,0 +1,26 @@
+name: Daily Discord Fact
+
+on:
+  schedule:
+    # Berjalan setiap hari pada 23:00 UTC (Sama dengan 06:00 WIB hari berikutnya)
+    - cron: '0 23 * * *'
+  workflow_dispatch: # Mengizinkan trigger manual dari GitHub Actions UI
+
+jobs:
+  send-fact:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Run Discord Bot Script
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          DISCORD_BOT_TOKEN: ${{ secrets.DISCORD_BOT_TOKEN }}
+          DISCORD_USER_ID: ${{ secrets.DISCORD_USER_ID }}
+        run: node scripts/send-discord.js
