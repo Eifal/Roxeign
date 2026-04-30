@@ -16,24 +16,32 @@ async function getFactFromGemini(apiKey) {
     const category = CATEGORIES[Math.floor(Math.random() * CATEGORIES.length)];
     const prompt = `Berikan SATU fakta unik tentang ${category.label}. Tulis persis 1 kalimat lengkap yang harus diakhiri dengan tanda titik (.). JANGAN SAMPAI KALIMAT TERPOTONG DI TENGAH. Jangan gunakan markdown atau kata pembuka.`;
 
-    const GEMINI_MODEL = 'gemini-2.5-flash';
-    const GEMINI_URL = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${apiKey}`;
+    const getResponse = async (modelName) => {
+        const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${apiKey}`;
+        return await fetch(url, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                contents: [{ parts: [{ text: prompt }] }],
+                generationConfig: {
+                    temperature: 0.9,
+                    maxOutputTokens: 1024,
+                    topP: 0.95,
+                    topK: 40,
+                }
+            })
+        });
+    };
 
-    const response = await fetch(GEMINI_URL, {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-            contents: [{ parts: [{ text: prompt }] }],
-            generationConfig: {
-                temperature: 0.9,
-                maxOutputTokens: 1024,
-                topP: 0.95,
-                topK: 40,
-            }
-        })
-    });
+    // Coba versi 2.5 terlebih dahulu
+    let response = await getResponse('gemini-2.5-flash');
+
+    // Jika server Google sedang penuh/overload (503), otomatis fallback ke versi 1.5
+    if (!response.ok && response.status === 503) {
+        response = await getResponse('gemini-1.5-flash');
+    }
 
     if (!response.ok) {
         const errText = await response.text();
