@@ -20,7 +20,6 @@ jobs:
 
       - name: Run Discord Bot Script
         env:
-          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-          DISCORD_BOT_TOKEN: ${{ secrets.DISCORD_BOT_TOKEN }}
-          DISCORD_USER_ID: ${{ secrets.DISCORD_USER_ID }}
+          PAGES_URL: ${{ secrets.PAGES_URL }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
         run: node scripts/send-discord.js
