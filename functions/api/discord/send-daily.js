@@ -13,15 +13,26 @@ const DEFAULT_SENDER_NAME = 'Roxeign Bot';
 const DEFAULT_SETUP_HOUR = 6;
 const WIB_OFFSET_HOURS = 7;
 
-const GEMINI_MODELS = ['gemini-1.5-flash', 'gemini-2.5-flash', 'gemini-pro'];
+const GEMINI_MODELS = ['gemini-3-flash', 'gemini-3.1-flash', 'gemini-1.5-flash'];
 const HF_MODELS = [
-  'google/gemma-2-2b-it',
-  'Qwen/Qwen2.5-7B-Instruct',
-  'Qwen/Qwen2.5-Coder-32B-Instruct',
-  'deepseek-ai/DeepSeek-R1-Distill-Llama-8B',
-  'zai-org/GLM-4.5',
-  'mistralai/Mistral-7B-Instruct-v0.2'
+  'google/gemma-2-9b-it',
+  'Qwen/Qwen2.5-72B-Instruct',
+  'deepseek-ai/DeepSeek-R1-Distill-Llama-70B'
 ];
+
+/**
+ * Get the "fact day" key (YYYY-MM-DD) in WIB timezone.
+ * Consistent with fact.js
+ */
+function getDateKey() {
+  const now = new Date();
+  const wibMs = now.getTime() + (7 * 60 * 60 * 1000);
+  const wib = new Date(wibMs);
+  if (wib.getUTCHours() < 6) {
+    wib.setUTCDate(wib.getUTCDate() - 1);
+  }
+  return wib.toISOString().split('T')[0];
+}
 
 /**
  * Utility to clean sender name for Discord Embed Footer
@@ -137,12 +148,11 @@ export async function onRequestPost({ request, env }) {
       }
 
       // Daily Lock to prevent duplicate sends
-      const todayString = now.toDateString();
+      const dateKey = getDateKey();
       const lastSentDate = await env.FACTS_KV.get('LAST_SENT_DATE');
-      if (lastSentDate === todayString) {
-        return Response.json({ success: true, message: 'Fact already sent for today.' });
+      if (lastSentDate === dateKey) {
+        return Response.json({ success: true, message: `Fact already sent for today (${dateKey}).` });
       }
-      await env.FACTS_KV.put('LAST_SENT_DATE', todayString);
     }
 
     // 4. Generate Fact
@@ -165,10 +175,11 @@ export async function onRequestPost({ request, env }) {
     };
 
     // 6. Sync with Web Cache (KV)
+    const dateKey = getDateKey();
     await env.FACTS_KV.put('GLOBAL_DAILY_FACT', JSON.stringify({
       text: factData.text,
       category: factData.category,
-      date: new Date().toDateString()
+      date: dateKey
     }));
 
     // 7. Send to Discord
@@ -184,6 +195,11 @@ export async function onRequestPost({ request, env }) {
     if (!discordRes.ok) {
       const errorText = await discordRes.text();
       throw new Error(`Discord API Error: ${discordRes.status} - ${errorText}`);
+    }
+
+    // 8. Update Lock after successful execution
+    if (!isManualTrigger) {
+      await env.FACTS_KV.put('LAST_SENT_DATE', getDateKey());
     }
 
     return Response.json({ success: true, message: 'Daily fact successfully sent!' });

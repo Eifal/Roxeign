@@ -10,7 +10,7 @@
 // ═══════════════════════════════════════════════════════════════
 
 // ─── Configuration ───
-const GEMINI_MODEL = 'gemini-3-flash-preview';
+const GEMINI_MODEL = 'gemini-3.1-flash';
 const GEMINI_URL = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`;
 
 const VALID_CATEGORIES = [

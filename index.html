@@ -165,36 +165,46 @@
         // ─── Load daily fact (Sync with Discord) ───
         async function loadDailyFact() {
             const today = getFactDay();
-            
+            const cachedDay = localStorage.getItem('dailyFactDay');
+            const cachedFact = localStorage.getItem('dailyFact');
+            const cachedCatKey = localStorage.getItem('dailyFactCat');
+
+            // 1. Tampilkan cache lokal segera jika masih valid untuk hari ini
+            // (Mencegah tampilan "revert" ke fakta lama sebelum API merespons)
+            if (cachedDay === today && cachedFact) {
+                const cat = CATEGORIES.find(c => c.key === cachedCatKey) || CATEGORIES[0];
+                displayFact(cachedFact, cat);
+            } else {
+                displayFact("Memuat fakta harian...", CATEGORIES[0]);
+            }
+
             try {
                 showLoading(true);
-                // Selalu coba ambil data terbaru dari Server (Discord)
                 const response = await fetch('/api/daily-fact');
                 if (!response.ok) throw new Error('No global daily fact yet');
                 
                 const data = await response.json();
                 
-                // Update cache lokal jika data dari server berbeda atau hari baru
-                localStorage.setItem('dailyFact', data.text);
-                localStorage.setItem('dailyFactCat', data.category.key);
-                localStorage.setItem('dailyFactDay', today);
-                
-                displayFact(data.text, data.category);
-                console.log('Sync complete: Daily fact updated from server');
-            } catch (error) {
-                console.warn('Sync failed, using local cache:', error);
-                
-                // Jika server gagal/kosong, baru gunakan cache lokal lama
-                const cachedDay = localStorage.getItem('dailyFactDay');
-                const cachedFact = localStorage.getItem('dailyFact');
-                const cachedCatKey = localStorage.getItem('dailyFactCat');
-
-                if (cachedDay === today && cachedFact) {
-                    const cat = CATEGORIES.find(c => c.key === cachedCatKey) || CATEGORIES[0];
-                    displayFact(cachedFact, cat);
-                } else {
-                    displayFact("Belum ada fakta harian. Tunggu bot Discord mengirim pesan pagi ini!", CATEGORIES[0]);
+                // 2. Hanya update jika fakta server adalah untuk HARI INI
+                // dan berbeda dengan apa yang kita punya di lokal
+                if (data.date === today && data.text !== cachedFact) {
+                    localStorage.setItem('dailyFact', data.text);
+                    localStorage.setItem('dailyFactCat', data.category.key || data.category);
+                    localStorage.setItem('dailyFactDay', today);
+                    
+                    displayFact(data.text, data.category);
+                    console.log('Sync: Updated with today\'s global fact');
+                } else if (data.date !== today && cachedDay === today) {
+                    // Server belum update ke hari ini, tapi kita sudah punya fakta (mungkin dari tombol "Fakta Baru")
+                    // Jangan timpa fakta baru kita dengan fakta lama dari server.
+                    console.log('Sync: Server fact is old, keeping local fact');
+                } else if (!cachedFact) {
+                    // Kasus pertama kali buka atau cache kosong
+                    displayFact(data.text, data.category);
                 }
+            } catch (error) {
+                console.warn('Sync failed:', error);
+                // Fallback sudah ditangani di langkah #1 (menampilkan cache)
             } finally {
                 showLoading(false);
             }
