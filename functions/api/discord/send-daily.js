@@ -13,7 +13,6 @@ const DEFAULT_SENDER_NAME = 'Roxeign Bot';
 const DEFAULT_SETUP_HOUR = 6;
 const WIB_OFFSET_HOURS = 7;
 
-const GEMINI_MODELS = ['gemini-3-flash', 'gemini-3.1-flash', 'gemini-1.5-flash'];
 const HF_MODELS = [
   'google/gemma-2-9b-it',
   'Qwen/Qwen2.5-72B-Instruct',
@@ -52,20 +51,6 @@ async function getFactFromAI(env) {
   const category = CATEGORIES[Math.floor(Math.random() * CATEGORIES.length)];
   const prompt = `Berikan SATU fakta unik tentang ${category.label}. Tulis persis 1 kalimat lengkap yang harus diakhiri dengan tanda titik (.). JANGAN gunakan markdown atau kata pembuka.`;
 
-  const fetchGemini = async (model) => {
-    try {
-      const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${env.GEMINI_API_KEY}`;
-      const res = await fetch(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] })
-      });
-      if (!res.ok) return null;
-      const data = await res.json();
-      return data.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || null;
-    } catch { return null; }
-  };
-
   const fetchHF = async (model) => {
     try {
       if (!env.HUGGINGFACE_API_KEY) return null;
@@ -90,18 +75,10 @@ async function getFactFromAI(env) {
 
   let factText = null;
 
-  // Layer 1 & 2: Google Gemini
-  for (const model of GEMINI_MODELS) {
-    factText = await fetchGemini(model);
+  // Hugging Face Primary
+  for (const model of HF_MODELS) {
+    factText = await fetchHF(model);
     if (factText) break;
-  }
-
-  // Layer 3: Hugging Face Fallback
-  if (!factText) {
-    for (const model of HF_MODELS) {
-      factText = await fetchHF(model);
-      if (factText) break;
-    }
   }
 
   return { text: factText, category };
@@ -117,8 +94,8 @@ export async function onRequestPost({ request, env }) {
     return new Response('Unauthorized', { status: 401 });
   }
 
-  if (!env.GEMINI_API_KEY || !env.DISCORD_BOT_TOKEN) {
-    return Response.json({ error: "Required environment variables missing!" }, { status: 500 });
+  if (!env.HUGGINGFACE_API_KEY || !env.DISCORD_BOT_TOKEN) {
+    return Response.json({ error: "Required environment variables missing (HUGGINGFACE_API_KEY or DISCORD_BOT_TOKEN)!" }, { status: 500 });
   }
 
   try {

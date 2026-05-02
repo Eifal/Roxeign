@@ -10,8 +10,8 @@
 // ═══════════════════════════════════════════════════════════════
 
 // ─── Configuration ───
-const GEMINI_MODEL = 'gemini-3.1-flash';
-const GEMINI_URL = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`;
+const HF_MODEL = 'google/gemma-2-9b-it';
+const HF_URL = `https://api-inference.huggingface.co/models/${HF_MODEL}`;
 
 const VALID_CATEGORIES = [
   'sains', 'sejarah', 'alam', 'luar angkasa',
@@ -33,8 +33,7 @@ const CATEGORY_LABELS = {
 const RATE_LIMIT_MAX = 10;
 const RATE_LIMIT_WINDOW_SEC = 3600; // 1 hour
 
-// Daily budget: max Gemini API calls per day (across ALL users)
-const DAILY_BUDGET_MAX = 50;
+// Global daily budget check removed in favor of shared caching logic
 
 // Cache TTL: 24 hours
 const CACHE_TTL_SEC = 86400;
@@ -93,8 +92,9 @@ function jsonResponse(data, status, origin) {
   });
 }
 
-/** Clean Gemini response text */
+/** Clean AI response text */
 function cleanFactText(text) {
+  if (!text) return '';
   return text
     .trim()
     .replace(/^[\s\n.,:;!?*#\-]+/, '')
@@ -200,73 +200,67 @@ export async function onRequest(context) {
     }, 503, origin);
   }
 
-  // ═══ LAYER 5: Call Gemini API (key from Cloudflare Secret) ═══
-  const apiKey = env.GEMINI_API_KEY;
+  // ═══ LAYER 5: Call Hugging Face API ═══
+  const apiKey = env.HUGGINGFACE_API_KEY;
   if (!apiKey) {
-    console.error('GEMINI_API_KEY secret not configured');
+    console.error('HUGGINGFACE_API_KEY secret not configured');
     return jsonResponse({
       error: 'Server configuration error',
-      message: 'API key belum dikonfigurasi.',
+      message: 'API key Hugging Face belum dikonfigurasi.',
     }, 500, origin);
   }
 
   try {
-    const prompt = `Berikan SATU fakta unik tentang ${label}. Tulis persis 1 kalimat lengkap yang harus diakhiri dengan tanda titik (.). JANGAN SAMPAI KALIMAT TERPOTONG DI TENGAH. Jangan gunakan markdown atau kata pembuka.`;
+    const prompt = `[INST] Berikan SATU fakta unik tentang ${label}. Tulis persis 1 kalimat lengkap yang harus diakhiri dengan tanda titik (.). JANGAN gunakan markdown atau kata pembuka. [/INST]`;
 
-    const geminiRes = await fetch(`${GEMINI_URL}?key=${apiKey}`, {
+    const hfRes = await fetch(HF_URL, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        contents: [{ parts: [{ text: prompt }] }],
-        generationConfig: {
-          temperature: 0.9,
-          maxOutputTokens: 1024,
-          topP: 0.95,
-          topK: 40,
-        },
+      headers: { 
+        'Authorization': `Bearer ${apiKey}`,
+        'Content-Type': 'application/json' 
+      },
+      body: JSON.stringify({ 
+        inputs: prompt,
+        parameters: { 
+          max_new_tokens: 150,
+          temperature: 0.7,
+          repetition_penalty: 1.2
+        }
       }),
     });
 
-    if (!geminiRes.ok) {
-      const errText = await geminiRes.text();
-      console.error(`Gemini API error ${geminiRes.status}:`, errText);
-      
-      const statusToReturn = geminiRes.status === 429 ? 429 : 502;
-      
+    if (!hfRes.ok) {
+      const errText = await hfRes.text();
+      console.error(`Hugging Face API error ${hfRes.status}:`, errText);
       return jsonResponse({
-        error: 'Gemini API error',
-        status: geminiRes.status,
-      }, statusToReturn, origin);
+        error: 'AI API error',
+        status: hfRes.status,
+      }, 502, origin);
     }
 
-    const data = await geminiRes.json();
-    const rawText = data?.candidates?.[0]?.content?.parts?.[0]?.text;
+    const result = await hfRes.json();
+    let rawText = (Array.isArray(result) ? result[0].generated_text : result.generated_text) || "";
+    
+    // Remove prompt from response if model includes it
+    if (rawText.includes('[/INST]')) {
+      rawText = rawText.split('[/INST]').pop();
+    }
 
-    if (!rawText || rawText.trim().length < 15) {
-      console.warn('Gemini returned empty/short response');
+    const fact = cleanFactText(rawText);
+
+    if (!fact || fact.length < 15) {
+      console.warn('AI returned empty/short response');
       return jsonResponse({
         error: 'Empty response from AI',
         message: 'AI mengembalikan respons kosong.',
       }, 502, origin);
     }
 
-    // Clean the response
-    const fact = cleanFactText(rawText);
-
-    // Store in cache (fire-and-forget)
+    // Store in cache (shared for everyone today)
     try {
       await env.FACTS_KV.put(cacheKey, fact, { expirationTtl: CACHE_TTL_SEC });
     } catch (e) {
       console.error('KV write error (cache):', e);
-    }
-
-    // Increment daily budget counter
-    try {
-      await env.FACTS_KV.put(budgetKey, String(budgetUsed + 1), {
-        expirationTtl: CACHE_TTL_SEC,
-      });
-    } catch (e) {
-      console.error('KV write error (budget):', e);
     }
 
     return jsonResponse({
@@ -277,10 +271,10 @@ export async function onRequest(context) {
     }, 200, origin);
 
   } catch (error) {
-    console.error('Gemini fetch error:', error);
+    console.error('Hugging Face fetch error:', error);
     return jsonResponse({
       error: 'Failed to connect to AI service',
-      message: 'Gagal menghubungi layanan AI.',
+      message: 'Gagal menghubungi layanan Hugging Face.',
     }, 502, origin);
   }
 }
