@@ -14,9 +14,10 @@ const DEFAULT_SETUP_HOUR = 6;
 const WIB_OFFSET_HOURS = 7;
 
 const HF_MODELS = [
-  'google/gemma-2-9b-it',
-  'Qwen/Qwen2.5-72B-Instruct',
-  'deepseek-ai/DeepSeek-R1-Distill-Llama-70B'
+  'meta-llama/Llama-3.2-3B-Instruct',
+  'mistralai/Mistral-7B-Instruct-v0.3',
+  'Qwen/Qwen2.5-7B-Instruct',
+  'microsoft/Phi-3.5-mini-instruct'
 ];
 
 /**

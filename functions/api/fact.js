@@ -10,8 +10,12 @@
 // ═══════════════════════════════════════════════════════════════
 
 // ─── Configuration ───
-const HF_MODEL = 'google/gemma-2-9b-it';
-const HF_URL = `https://api-inference.huggingface.co/models/${HF_MODEL}`;
+const HF_MODELS = [
+  'meta-llama/Llama-3.2-3B-Instruct',
+  'mistralai/Mistral-7B-Instruct-v0.3',
+  'Qwen/Qwen2.5-7B-Instruct',
+  'microsoft/Phi-3.5-mini-instruct'
+];
 
 const VALID_CATEGORIES = [
   'sains', 'sejarah', 'alam', 'luar angkasa',
@@ -204,51 +208,61 @@ export async function onRequest(context) {
 
   try {
     const prompt = `[INST] Berikan SATU fakta unik tentang ${label}. Tulis persis 1 kalimat lengkap yang harus diakhiri dengan tanda titik (.). JANGAN gunakan markdown atau kata pembuka. [/INST]`;
+    let fact = null;
+    let lastError = null;
 
-    const hfRes = await fetch(HF_URL, {
-      method: 'POST',
-      headers: { 
-        'Authorization': `Bearer ${apiKey}`,
-        'Content-Type': 'application/json' 
-      },
-      body: JSON.stringify({ 
-        inputs: prompt,
-        parameters: { 
-          max_new_tokens: 150,
-          temperature: 0.7,
-          repetition_penalty: 1.2
+    for (const model of HF_MODELS) {
+      try {
+        const hfRes = await fetch(`https://api-inference.huggingface.co/models/${model}`, {
+          method: 'POST',
+          headers: { 
+            'Authorization': `Bearer ${apiKey}`,
+            'Content-Type': 'application/json' 
+          },
+          body: JSON.stringify({ 
+            inputs: prompt,
+            parameters: { 
+              max_new_tokens: 150,
+              temperature: 0.7,
+              repetition_penalty: 1.2
+            }
+          }),
+        });
+
+        if (!hfRes.ok) {
+          const errText = await hfRes.text();
+          console.warn(`HF Model ${model} failed (${hfRes.status}): ${errText}`);
+          lastError = { status: hfRes.status, message: errText };
+          continue; // Try next model
         }
-      }),
-    });
 
-    if (!hfRes.ok) {
-      const errText = await hfRes.text();
-      console.error(`Hugging Face API error ${hfRes.status}:`, errText);
+        const result = await hfRes.json();
+        let rawText = (Array.isArray(result) ? result[0].generated_text : result.generated_text) || "";
+        
+        if (rawText.includes('[/INST]')) {
+          rawText = rawText.split('[/INST]').pop();
+        }
+
+        const cleaned = cleanFactText(rawText);
+        if (cleaned && cleaned.length >= 15) {
+          fact = cleaned;
+          break; // Success!
+        }
+      } catch (e) {
+        console.error(`Error with model ${model}:`, e);
+        lastError = e;
+      }
+    }
+
+    if (!fact) {
       return jsonResponse({
-        error: 'AI API error',
-        status: hfRes.status,
+        error: 'All AI models failed',
+        details: lastError?.message || lastError?.toString(),
+        status: lastError?.status || 502
       }, 502, origin);
     }
 
-    const result = await hfRes.json();
-    let rawText = (Array.isArray(result) ? result[0].generated_text : result.generated_text) || "";
-    
-    // Remove prompt from response if model includes it
-    if (rawText.includes('[/INST]')) {
-      rawText = rawText.split('[/INST]').pop();
-    }
-
-    const fact = cleanFactText(rawText);
-
-    if (!fact || fact.length < 15) {
-      console.warn('AI returned empty/short response');
-      return jsonResponse({
-        error: 'Empty response from AI',
-        message: 'AI mengembalikan respons kosong.',
-      }, 502, origin);
-    }
-
-    // Store in cache (shared for everyone today)
+    // Store in cache
     try {
       await env.FACTS_KV.put(cacheKey, fact, { expirationTtl: CACHE_TTL_SEC });
     } catch (e) {
@@ -263,7 +277,7 @@ export async function onRequest(context) {
     }, 200, origin);
 
   } catch (error) {
-    console.error('Hugging Face fetch error:', error);
+    console.error('General HF processing error:', error);
     return jsonResponse({
       error: 'Failed to connect to AI service',
       message: 'Gagal menghubungi layanan Hugging Face.',
