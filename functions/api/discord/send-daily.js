@@ -57,14 +57,13 @@ async function getFactFromAI(env) {
   const fetchHF = async (model) => {
     try {
       if (!env.HUGGINGFACE_API_KEY) return null;
-      const res = await fetch(`https://api-inference.huggingface.co/v1/chat/completions`, {
+      const res = await fetch(`https://api-inference.huggingface.co/models/${model}/v1/chat/completions`, {
         method: 'POST',
         headers: { 
           'Authorization': `Bearer ${env.HUGGINGFACE_API_KEY}`,
           'Content-Type': 'application/json' 
         },
         body: JSON.stringify({ 
-          model: model,
           messages: messages,
           max_tokens: 150,
           temperature: 0.7
