@@ -183,21 +183,13 @@ export async function onRequest(context) {
     console.error('KV read error (cache):', e);
   }
 
-  // ═══ LAYER 4: Global daily budget check ═══
-  const budgetKey = `budget:${dateKey}`;
-  let budgetUsed = 0;
-
-  try {
-    budgetUsed = parseInt(await env.FACTS_KV.get(budgetKey) || '0');
-  } catch (e) {
-    console.error('KV read error (budget):', e);
-  }
-
-  if (budgetUsed >= DAILY_BUDGET_MAX) {
+  // ═══ LAYER 4: KV check ═══
+  if (!env.FACTS_KV) {
+    console.error('FACTS_KV namespace not bound');
     return jsonResponse({
-      error: 'Daily budget exceeded',
-      message: 'Kuota API harian tercapai. Gunakan fakta offline.',
-    }, 503, origin);
+      error: 'Server configuration error',
+      message: 'KV storage belum dikonfigurasi.',
+    }, 500, origin);
   }
 
   // ═══ LAYER 5: Call Hugging Face API ═══
