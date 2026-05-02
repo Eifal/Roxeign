@@ -1,3 +1,5 @@
+import { HfInference } from '@huggingface/inference';
+
 // ═══════════════════════════════════════════════════════════════
 // Daily Facts — Cloudflare Pages Function (API Proxy)
 // ═══════════════════════════════════════════════════════════════
@@ -217,30 +219,18 @@ export async function onRequest(context) {
     let fact = null;
     let lastError = null;
 
+    const client = new HfInference(apiKey);
+
     for (const model of HF_MODELS) {
       try {
-        const hfRes = await fetch(`https://api-inference.huggingface.co/models/${model}/v1/chat/completions`, {
-          method: 'POST',
-          headers: { 
-            'Authorization': `Bearer ${apiKey}`,
-            'Content-Type': 'application/json' 
-          },
-          body: JSON.stringify({ 
-            messages: messages,
-            max_tokens: 150,
-            temperature: 0.7
-          }),
+        const response = await client.chatCompletion({
+          model: model,
+          messages: messages,
+          max_tokens: 150,
+          temperature: 0.7,
         });
 
-        if (!hfRes.ok) {
-          const errText = await hfRes.text();
-          console.warn(`HF Model ${model} failed (${hfRes.status}): ${errText}`);
-          lastError = { status: hfRes.status, message: errText };
-          continue; 
-        }
-
-        const result = await hfRes.json();
-        const rawText = result.choices?.[0]?.message?.content || "";
+        const rawText = response.choices?.[0]?.message?.content || "";
         const cleaned = cleanFactText(rawText);
 
         if (cleaned && cleaned.length >= 15) {
@@ -248,7 +238,7 @@ export async function onRequest(context) {
           break; 
         }
       } catch (e) {
-        console.error(`Error with model ${model}:`, e);
+        console.warn(`Error with model ${model}:`, e.message);
         lastError = e;
       }
     }
