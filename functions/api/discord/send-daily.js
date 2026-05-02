@@ -1,5 +1,3 @@
-import { HfInference } from 'https://esm.sh/@huggingface/inference';
-
 const CATEGORIES = [
   { key: 'sains', icon: '🔬', label: 'Sains', color: 0x3b82f6 },
   { key: 'sejarah', icon: '📜', label: 'Sejarah', color: 0xeab308 },
@@ -56,19 +54,25 @@ async function getFactFromAI(env) {
     }
   ];
 
-  const client = new HfInference(env.HUGGINGFACE_API_KEY);
-
   const fetchHF = async (model) => {
     try {
       if (!env.HUGGINGFACE_API_KEY) return null;
-      const response = await client.chatCompletion({
-        model: model,
-        messages: messages,
-        max_tokens: 150,
-        temperature: 0.7,
+      const response = await fetch(`https://api-inference.huggingface.co/models/${model}/v1/chat/completions`, {
+        method: 'POST',
+        headers: { 
+          'Authorization': `Bearer ${env.HUGGINGFACE_API_KEY}`,
+          'Content-Type': 'application/json' 
+        },
+        body: JSON.stringify({ 
+          messages: messages,
+          max_tokens: 150,
+          temperature: 0.7
+        })
       });
 
-      return response.choices?.[0]?.message?.content?.trim() || null;
+      if (!response.ok) return null;
+      const result = await response.json();
+      return result.choices?.[0]?.message?.content?.trim() || null;
     } catch (e) {
       console.warn(`Error with model ${model}:`, e.message);
       return null;
