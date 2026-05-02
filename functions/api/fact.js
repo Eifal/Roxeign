@@ -11,10 +11,10 @@
 
 // ─── Configuration ───
 const HF_MODELS = [
-  'meta-llama/Llama-3.2-3B-Instruct',
-  'mistralai/Mistral-7B-Instruct-v0.3',
-  'Qwen/Qwen2.5-7B-Instruct',
-  'microsoft/Phi-3.5-mini-instruct'
+  'google/gemma-2-2b-it',
+  'Qwen/Qwen2.5-7B-Instruct-1M',
+  'Qwen/Qwen2.5-Coder-32B-Instruct',
+  'deepseek-ai/DeepSeek-R1-Distill-Qwen-7B'
 ];
 
 const VALID_CATEGORIES = [
@@ -207,25 +207,29 @@ export async function onRequest(context) {
   }
 
   try {
-    const prompt = `[INST] Berikan SATU fakta unik tentang ${label}. Tulis persis 1 kalimat lengkap yang harus diakhiri dengan tanda titik (.). JANGAN gunakan markdown atau kata pembuka. [/INST]`;
+    const messages = [
+      {
+        role: 'user',
+        content: `Berikan SATU fakta unik tentang ${label}. Tulis persis 1 kalimat lengkap yang harus diakhiri dengan tanda titik (.). JANGAN gunakan markdown atau kata pembuka.`
+      }
+    ];
+
     let fact = null;
     let lastError = null;
 
     for (const model of HF_MODELS) {
       try {
-        const hfRes = await fetch(`https://api-inference.huggingface.co/models/${model}`, {
+        const hfRes = await fetch(`https://api-inference.huggingface.co/v1/chat/completions`, {
           method: 'POST',
           headers: { 
             'Authorization': `Bearer ${apiKey}`,
             'Content-Type': 'application/json' 
           },
           body: JSON.stringify({ 
-            inputs: prompt,
-            parameters: { 
-              max_new_tokens: 150,
-              temperature: 0.7,
-              repetition_penalty: 1.2
-            }
+            model: model,
+            messages: messages,
+            max_tokens: 150,
+            temperature: 0.7
           }),
         });
 
@@ -233,20 +237,16 @@ export async function onRequest(context) {
           const errText = await hfRes.text();
           console.warn(`HF Model ${model} failed (${hfRes.status}): ${errText}`);
           lastError = { status: hfRes.status, message: errText };
-          continue; // Try next model
+          continue; 
         }
 
         const result = await hfRes.json();
-        let rawText = (Array.isArray(result) ? result[0].generated_text : result.generated_text) || "";
-        
-        if (rawText.includes('[/INST]')) {
-          rawText = rawText.split('[/INST]').pop();
-        }
-
+        const rawText = result.choices?.[0]?.message?.content || "";
         const cleaned = cleanFactText(rawText);
+
         if (cleaned && cleaned.length >= 15) {
           fact = cleaned;
-          break; // Success!
+          break; 
         }
       } catch (e) {
         console.error(`Error with model ${model}:`, e);

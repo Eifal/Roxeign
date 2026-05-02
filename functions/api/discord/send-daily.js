@@ -12,12 +12,11 @@ const CATEGORIES = [
 const DEFAULT_SENDER_NAME = 'Roxeign Bot';
 const DEFAULT_SETUP_HOUR = 6;
 const WIB_OFFSET_HOURS = 7;
-
 const HF_MODELS = [
-  'meta-llama/Llama-3.2-3B-Instruct',
-  'mistralai/Mistral-7B-Instruct-v0.3',
-  'Qwen/Qwen2.5-7B-Instruct',
-  'microsoft/Phi-3.5-mini-instruct'
+  'google/gemma-2-2b-it',
+  'Qwen/Qwen2.5-7B-Instruct-1M',
+  'Qwen/Qwen2.5-Coder-32B-Instruct',
+  'deepseek-ai/DeepSeek-R1-Distill-Qwen-7B'
 ];
 
 /**
@@ -39,9 +38,7 @@ function getDateKey() {
  */
 function getSafeSenderName(name) {
   if (!name) return DEFAULT_SENDER_NAME;
-  // Embed footer doesn't support mentions, replace with static text
   if (name.includes('<@')) return 'Kekasihmu';
-  // Remove special characters to keep it clean
   return name.replace(/[@<>\d]/g, '').trim() || name;
 }
 
@@ -50,27 +47,32 @@ function getSafeSenderName(name) {
  */
 async function getFactFromAI(env) {
   const category = CATEGORIES[Math.floor(Math.random() * CATEGORIES.length)];
-  const prompt = `Berikan SATU fakta unik tentang ${category.label}. Tulis persis 1 kalimat lengkap yang harus diakhiri dengan tanda titik (.). JANGAN gunakan markdown atau kata pembuka.`;
+  const messages = [
+    {
+      role: 'user',
+      content: `Berikan SATU fakta unik tentang ${category.label}. Tulis persis 1 kalimat lengkap yang harus diakhiri dengan tanda titik (.). JANGAN gunakan markdown atau kata pembuka.`
+    }
+  ];
 
   const fetchHF = async (model) => {
     try {
       if (!env.HUGGINGFACE_API_KEY) return null;
-      const res = await fetch(`https://api-inference.huggingface.co/models/${model}`, {
+      const res = await fetch(`https://api-inference.huggingface.co/v1/chat/completions`, {
         method: 'POST',
         headers: { 
           'Authorization': `Bearer ${env.HUGGINGFACE_API_KEY}`,
           'Content-Type': 'application/json' 
         },
         body: JSON.stringify({ 
-          inputs: `[INST] ${prompt} [/INST]`,
-          parameters: { max_new_tokens: 100 }
+          model: model,
+          messages: messages,
+          max_tokens: 150,
+          temperature: 0.7
         })
       });
       if (!res.ok) return null;
       const result = await res.json();
-      let text = (Array.isArray(result) ? result[0].generated_text : result.generated_text) || "";
-      if (text.includes('[/INST]')) text = text.split('[/INST]').pop();
-      return text.trim() || null;
+      return result.choices?.[0]?.message?.content?.trim() || null;
     } catch { return null; }
   };
 
