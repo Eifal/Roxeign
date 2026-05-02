@@ -4,9 +4,9 @@
 // Security layers:
 //   1. Origin/Referer validation
 //   2. Per-IP rate limiting (KV)
-//   3. KV response caching (24h per category)
-//   4. Global daily API budget cap (KV)
-//   5. API key hidden in Cloudflare Secrets
+//   3. Shared KV response caching (24h per category)
+//   4. KV Binding validation
+//   5. Hugging Face Global Router API
 // ═══════════════════════════════════════════════════════════════
 
 // ─── Configuration ───
@@ -36,8 +36,6 @@ const CATEGORY_LABELS = {
 // Rate limit: max requests per IP per window
 const RATE_LIMIT_MAX = 10;
 const RATE_LIMIT_WINDOW_SEC = 3600; // 1 hour
-
-// Global daily budget check removed in favor of shared caching logic
 
 // Cache TTL: 24 hours
 const CACHE_TTL_SEC = 86400;
@@ -187,12 +185,12 @@ export async function onRequest(context) {
     console.error('KV read error (cache):', e);
   }
 
-  // ═══ LAYER 4: KV check ═══
+  // ═══ LAYER 4: KV Binding Check ═══
   if (!env.FACTS_KV) {
     console.error('FACTS_KV namespace not bound');
     return jsonResponse({
       error: 'Server configuration error',
-      message: 'KV storage belum dikonfigurasi.',
+      message: 'Layanan penyimpanan (KV) belum terhubung.',
     }, 500, origin);
   }
 
