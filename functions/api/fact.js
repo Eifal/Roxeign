@@ -219,13 +219,14 @@ export async function onRequest(context) {
 
     for (const model of HF_MODELS) {
       try {
-        const response = await fetch(`https://api-inference.huggingface.co/models/${model}/v1/chat/completions`, {
+        const response = await fetch('https://router.huggingface.co/v1/chat/completions', {
           method: 'POST',
           headers: { 
             'Authorization': `Bearer ${apiKey}`,
             'Content-Type': 'application/json' 
           },
           body: JSON.stringify({ 
+            model: model,
             messages: messages,
             max_tokens: 150,
             temperature: 0.7
