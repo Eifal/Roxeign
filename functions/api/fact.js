@@ -1,4 +1,4 @@
-import { HfInference } from '@huggingface/inference';
+import { HfInference } from 'https://esm.sh/@huggingface/inference';
 
 // ═══════════════════════════════════════════════════════════════
 // Daily Facts — Cloudflare Pages Function (API Proxy)

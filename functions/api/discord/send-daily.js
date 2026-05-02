@@ -1,4 +1,4 @@
-import { HfInference } from '@huggingface/inference';
+import { HfInference } from 'https://esm.sh/@huggingface/inference';
 
 const CATEGORIES = [
   { key: 'sains', icon: '🔬', label: 'Sains', color: 0x3b82f6 },
