@@ -2,7 +2,7 @@ const INTERACTION_TYPE_PING = 1;
 const INTERACTION_TYPE_COMMAND = 2;
 const RESPONSE_TYPE_PONG = 1;
 const RESPONSE_TYPE_CHANNEL_MESSAGE = 4;
-const DEFAULT_SETUP_HOUR = 6;
+const DEFAULT_SETUP_HOUR = 7;
 
 /**
  * Utility to convert Hex string to Uint8Array
@@ -46,6 +46,13 @@ async function verifyDiscordSignature(body, signature, timestamp, publicKey) {
       return fallbackErr.message || fallbackErr.toString();
     }
   }
+}
+
+function getSafeSetupHour(value) {
+  const parsed = Number(value);
+  return Number.isInteger(parsed) && parsed >= 0 && parsed <= 23
+    ? parsed
+    : DEFAULT_SETUP_HOUR;
 }
 
 /**
@@ -92,6 +99,7 @@ export async function onRequestPost({ request, env }) {
       let mentionName = '';
       let senderName = 'Bot';
       let setupTime = DEFAULT_SETUP_HOUR;
+      let setupTimeExplicit = false;
 
       if (options) {
         for (const opt of options) {
@@ -105,7 +113,10 @@ export async function onRequestPost({ request, env }) {
               }
               break;
             case 'sender': senderName = opt.value; break;
-            case 'time': setupTime = opt.value; break;
+            case 'time':
+              setupTime = getSafeSetupHour(opt.value);
+              setupTimeExplicit = true;
+              break;
           }
         }
       }
@@ -115,7 +126,8 @@ export async function onRequestPost({ request, env }) {
         mentionUser,
         mentionName,
         senderName,
-        setupTime
+        setupTime: getSafeSetupHour(setupTime),
+        setupTimeExplicit
       };
 
       await env.FACTS_KV.put('DISCORD_CONFIG', JSON.stringify(config));

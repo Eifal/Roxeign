@@ -10,7 +10,7 @@ const CATEGORIES = [
 ];
 
 const DEFAULT_SENDER_NAME = 'Roxeign Bot';
-const DEFAULT_SETUP_HOUR = 6;
+const DEFAULT_SETUP_HOUR = 7;
 const WIB_OFFSET_HOURS = 7;
 const HF_MODELS = [
   'google/gemma-2-2b-it',
@@ -27,7 +27,7 @@ function getDateKey() {
   const now = new Date();
   const wibMs = now.getTime() + (7 * 60 * 60 * 1000);
   const wib = new Date(wibMs);
-  if (wib.getUTCHours() < 6) {
+  if (wib.getUTCHours() < DEFAULT_SETUP_HOUR) {
     wib.setUTCDate(wib.getUTCDate() - 1);
   }
   return wib.toISOString().split('T')[0];
@@ -40,6 +40,22 @@ function getSafeSenderName(name) {
   if (!name) return DEFAULT_SENDER_NAME;
   if (name.includes('<@')) return 'Kekasihmu';
   return name.replace(/[@<>\d]/g, '').trim() || name;
+}
+
+function isValidDiscordSnowflake(value) {
+  return typeof value === 'string' && /^\d{17,20}$/.test(value);
+}
+
+function getTargetHour(config) {
+  if (config?.setupTimeExplicit !== true) {
+    return DEFAULT_SETUP_HOUR;
+  }
+
+  const { setupTime } = config;
+  const parsed = Number(setupTime);
+  return Number.isInteger(parsed) && parsed >= 0 && parsed <= 23
+    ? parsed
+    : DEFAULT_SETUP_HOUR;
 }
 
 /**
@@ -113,7 +129,13 @@ export async function onRequestPost({ request, env }) {
     }
     
     const config = JSON.parse(configStr);
-    const { channelId, mentionUser, mentionName, senderName, setupTime } = config;
+    const { channelId, mentionUser, senderName } = config;
+
+    if (!isValidDiscordSnowflake(channelId) || !isValidDiscordSnowflake(mentionUser)) {
+      return Response.json({
+        error: 'Discord configuration is invalid. Run /setup again with a valid channel and mention user.'
+      }, { status: 400 });
+    }
 
     // 3. Dynamic Scheduling Check
     const userAgent = request.headers.get('User-Agent') || '';
@@ -122,11 +144,14 @@ export async function onRequestPost({ request, env }) {
     if (!isManualTrigger) {
       const now = new Date();
       const currentHourWIB = (now.getUTCHours() + WIB_OFFSET_HOURS) % 24;
-      const targetHour = setupTime !== undefined ? setupTime : DEFAULT_SETUP_HOUR;
+      const targetHour = getTargetHour(config);
 
       if (currentHourWIB !== targetHour) {
         return Response.json({ 
           success: true, 
+          sent: false,
+          skipped: true,
+          reason: 'outside_schedule',
           message: `Scheduled time not reached. (Current: ${currentHourWIB}, Target: ${targetHour})` 
         });
       }
@@ -135,7 +160,13 @@ export async function onRequestPost({ request, env }) {
       const dateKey = getDateKey();
       const lastSentDate = await env.FACTS_KV.get('LAST_SENT_DATE');
       if (lastSentDate === dateKey) {
-        return Response.json({ success: true, message: `Fact already sent for today (${dateKey}).` });
+        return Response.json({
+          success: true,
+          sent: false,
+          skipped: true,
+          reason: 'already_sent',
+          message: `Fact already sent for today (${dateKey}).`
+        });
       }
     }
 
@@ -147,7 +178,6 @@ export async function onRequestPost({ request, env }) {
 
     // 5. Prepare Discord Payload
     const cleanSender = getSafeSenderName(senderName);
-    const recipientName = mentionName || "Sayang";
 
     const payload = {
       content: `Pagi Sayang aku ❤️ <@${mentionUser}>`,
@@ -158,15 +188,7 @@ export async function onRequestPost({ request, env }) {
       }]
     };
 
-    // 6. Sync with Web Cache (KV)
-    const dateKey = getDateKey();
-    await env.FACTS_KV.put('GLOBAL_DAILY_FACT', JSON.stringify({
-      text: factData.text,
-      category: factData.category,
-      date: dateKey
-    }));
-
-    // 7. Send to Discord
+    // 6. Send to Discord
     const discordRes = await fetch(`https://discord.com/api/v10/channels/${channelId}/messages`, {
       method: 'POST',
       headers: {
@@ -181,12 +203,20 @@ export async function onRequestPost({ request, env }) {
       throw new Error(`Discord API Error: ${discordRes.status} - ${errorText}`);
     }
 
+    // 7. Sync with Web Cache (KV) only after Discord accepts the message.
+    const dateKey = getDateKey();
+    await env.FACTS_KV.put('GLOBAL_DAILY_FACT', JSON.stringify({
+      text: factData.text,
+      category: factData.category,
+      date: dateKey
+    }));
+
     // 8. Update Lock after successful execution
     if (!isManualTrigger) {
       await env.FACTS_KV.put('LAST_SENT_DATE', getDateKey());
     }
 
-    return Response.json({ success: true, message: 'Daily fact successfully sent!' });
+    return Response.json({ success: true, sent: true, message: 'Daily fact successfully sent!' });
     
   } catch (error) {
     console.error('Send Daily Failed:', error);

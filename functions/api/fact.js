@@ -51,13 +51,13 @@ const ALLOWED_ORIGINS = [
 
 /**
  * Get the "fact day" key (YYYY-MM-DD) in WIB timezone.
- * Day boundary is 6 AM WIB — before 6 AM counts as previous day.
+ * Day boundary is 7 AM WIB — before 7 AM counts as previous day.
  */
 function getDateKey() {
   const now = new Date();
   const wibMs = now.getTime() + (7 * 60 * 60 * 1000);
   const wib = new Date(wibMs);
-  if (wib.getUTCHours() < 6) {
+  if (wib.getUTCHours() < 7) {
     wib.setUTCDate(wib.getUTCDate() - 1);
   }
   return wib.toISOString().split('T')[0];
