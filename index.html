@@ -130,17 +130,17 @@
         let isLoading = false;
         let loadingTimer = null;
         let countdownTimer = null;
-        const DAILY_HOUR = 6; // Update setiap jam 6 pagi
+        const DAILY_HOUR = 7; // Update setiap jam 7 pagi
 
         // ─── Daily schedule helpers ───
-        // "Fact day" = hari dimulai jam 6 pagi (sebelum jam 6 = masih hari kemarin)
+        // "Fact day" = hari dimulai jam 7 pagi (sebelum jam 7 = masih hari kemarin)
         function getFactDay(date = new Date()) {
             const d = new Date(date);
             if (d.getHours() < DAILY_HOUR) d.setDate(d.getDate() - 1);
             return d.toDateString();
         }
 
-        function getNext6AM() {
+        function getNextDailyUpdate() {
             const now = new Date();
             const next = new Date(now);
             next.setHours(DAILY_HOUR, 0, 0, 0);
@@ -148,8 +148,8 @@
             return next;
         }
 
-        function msUntilNext6AM() {
-            return getNext6AM().getTime() - Date.now();
+        function msUntilNextDailyUpdate() {
+            return getNextDailyUpdate().getTime() - Date.now();
         }
 
         // ─── Initialize ───
@@ -158,7 +158,7 @@
             checkStreak();
             updateStats();
             loadDailyFact();
-            scheduleNext6AM();
+            scheduleNextDailyUpdate();
             startCountdown();
         }
 
@@ -210,14 +210,14 @@
             }
         }
 
-        // ─── Schedule auto-refresh at next 6 AM ───
-        function scheduleNext6AM() {
-            const ms = msUntilNext6AM();
+        // ─── Schedule auto-refresh at next daily update ───
+        function scheduleNextDailyUpdate() {
+            const ms = msUntilNextDailyUpdate();
             console.log(`Next fact update in ${Math.round(ms / 60000)} minutes`);
             setTimeout(() => {
-                console.log('⏰ 6 AM — fetching new daily fact');
+                console.log(`Daily update hour reached (${DAILY_HOUR}:00) - fetching new daily fact`);
                 loadDailyFact(); // Gunakan loadDailyFact agar sinkron dengan Discord
-                scheduleNext6AM(); // schedule next day
+                scheduleNextDailyUpdate(); // schedule next day
                 startCountdown();
             }, ms);
         }
@@ -230,7 +230,7 @@
         }
 
         function updateCountdownDisplay() {
-            const ms = msUntilNext6AM();
+            const ms = msUntilNextDailyUpdate();
             const hours = Math.floor(ms / 3600000);
             const mins = Math.floor((ms % 3600000) / 60000);
             const el = document.getElementById('nextUpdate');

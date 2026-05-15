@@ -1,6 +1,6 @@
 // Script ini dijalankan oleh GitHub Actions setiap hari.
-// Tugasnya sekarang HANYA men-trigger endpoint di Cloudflare Pages,
-// karena Cloudflare Pages yang memiliki akses langsung ke Cloudflare KV (untuk membaca konfigurasi slash command).
+// Tugasnya HANYA men-trigger endpoint di Cloudflare Pages,
+// karena Cloudflare Pages punya akses langsung ke Cloudflare KV.
 
 const PAGES_URL = process.env.PAGES_URL;
 const CRON_SECRET = process.env.CRON_SECRET;
@@ -13,7 +13,7 @@ if (!PAGES_URL || !CRON_SECRET) {
 async function main() {
     try {
         console.log(`Mengirim perintah ke: ${PAGES_URL}/api/discord/send-daily`);
-        
+
         const response = await fetch(`${PAGES_URL}/api/discord/send-daily`, {
             method: 'POST',
             headers: {
@@ -23,13 +23,30 @@ async function main() {
 
         const data = await response.text();
 
-        if (response.ok) {
-            console.log('✅ Berhasil:', data);
-        } else {
+        if (!response.ok) {
             throw new Error(`Cloudflare API Error: ${response.status} - ${data}`);
         }
+
+        let parsed = null;
+        try {
+            parsed = JSON.parse(data);
+        } catch (error) {
+            // Keep raw output for non-JSON responses.
+        }
+
+        if (parsed?.skipped) {
+            console.log('Dilewati:', parsed.message || data);
+            return;
+        }
+
+        if (parsed?.sent === true) {
+            console.log('Berhasil dikirim:', parsed.message || data);
+            return;
+        }
+
+        console.log('Berhasil:', data);
     } catch (error) {
-        console.error('❌ Terjadi kesalahan:', error.message);
+        console.error('Terjadi kesalahan:', error.message);
         process.exit(1);
     }
 }
