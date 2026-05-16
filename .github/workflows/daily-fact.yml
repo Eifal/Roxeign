@@ -3,7 +3,7 @@ name: Daily Discord Fact
 on:
   schedule:
     # Berjalan setiap jam untuk mengecek jadwal dinamis di Cloudflare
-    - cron: '0 * * * *'
+    - cron: '17 * * * *'
   workflow_dispatch: # Mengizinkan trigger manual dari GitHub Actions UI
 
 jobs:

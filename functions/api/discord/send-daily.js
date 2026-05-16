@@ -146,7 +146,7 @@ export async function onRequestPost({ request, env }) {
       const currentHourWIB = (now.getUTCHours() + WIB_OFFSET_HOURS) % 24;
       const targetHour = getTargetHour(config);
 
-      if (currentHourWIB !== targetHour) {
+      if (currentHourWIB < targetHour) {
         return Response.json({ 
           success: true, 
           sent: false,
