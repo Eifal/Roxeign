@@ -1,0 +1,7 @@
+name = "roxeign-discord-daily-cron"
+main = "workers/discord-daily-cron.js"
+compatibility_date = "2026-05-16"
+
+[triggers]
+# 00:00 UTC = 07:00 WIB.
+crons = ["0 0 * * *"]

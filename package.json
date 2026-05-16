@@ -5,7 +5,8 @@
   "private": true,
   "scripts": {
     "dev": "npx wrangler pages dev ./ --kv FACTS_KV",
-    "deploy": "npx wrangler pages deploy ./"
+    "deploy": "npx wrangler pages deploy ./",
+    "deploy:cron": "npx wrangler deploy -c wrangler.discord-cron.toml"
   },
   "devDependencies": {
     "wrangler": "^4.14.1"
