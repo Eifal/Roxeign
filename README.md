@@ -1,23 +1,5 @@
-# Daily Facts 
+# Daily Facts
 
-Aplikasi web sederhana yang menampilkan fakta menarik setiap hari. Ditenagai oleh AI untuk memberikan wawasan singkat seputar sains, alam, teknologi, dan lainnya dengan antarmuka yang bersih dan modern.
+Daily Facts adalah web sederhana untuk menampilkan fakta unik harian. Fakta dibuat melalui API AI di Cloudflare Pages Function, disimpan agar tampilan web konsisten, dan disinkronkan dengan pengiriman otomatis ke Discord setiap pagi.
 
-## Fitur
-- Pembaruan fakta otomatis setiap hari.
-- Mode offline fallback.
-- Caching cerdas untuk optimasi performa.
-
-## Scheduler Discord
-
-Scheduler yang lebih presisi bisa dijalankan memakai Cloudflare Workers Cron Trigger:
-
-```powershell
-npm run deploy:cron
-```
-
-Worker cron memakai jadwal `0 0 * * *` UTC, setara dengan 07:00 WIB. Setelah deploy, set secret/variable berikut pada Worker `roxeign-discord-daily-cron`:
-
-- `PAGES_URL`: URL Cloudflare Pages production, contoh `https://roxeign.pages.dev`
-- `CRON_SECRET`: nilai yang sama dengan secret `CRON_SECRET` di Pages Function
-
-Worker hanya memanggil endpoint Pages `/api/discord/send-daily`, jadi token Discord, HuggingFace API key, dan KV tetap dikelola oleh Pages Function.
+Web ini juga menyediakan tombol untuk meminta fakta baru, membagikan fakta, statistik lokal, streak kunjungan, cache harian, dan fallback offline saat layanan AI tidak tersedia.
