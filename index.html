@@ -5,7 +5,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="description"
-        content="Temukan fakta-fakta menarik dan mengejutkan setiap hari. Dipersembahkan dengan AI dari Hugging Face.">
+        content="Temukan fakta-fakta menarik dan mengejutkan setiap hari. Dipersembahkan dengan AI dari Google Gemini.">
     <title>Daily Fun Facts — Fakta Menarik Setiap Hari</title>
     <link rel="stylesheet" href="style.css">
     <link rel="icon"
@@ -46,15 +46,6 @@
                 </div>
 
                 <div class="fact-footer">
-                    <button class="refresh-btn" id="refreshBtn" title="Fakta baru">
-                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                            stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-                            <path d="M23 4v6h-6"></path>
-                            <path d="M1 20v-6h6"></path>
-                            <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path>
-                        </svg>
-                        <span>Fakta Baru</span>
-                    </button>
                     <button class="share-btn" id="shareBtn" title="Bagikan fakta">
                         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor"
                             stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
@@ -80,7 +71,7 @@
         </main>
 
         <footer class="footer">
-            <p>Dipersembahkan oleh Hugging Face AI ⚡</p>
+            <p>Dipersembahkan oleh Google Gemini AI ⚡</p>
         </footer>
     </div>
 
@@ -92,18 +83,11 @@
     <div class="toast" id="toast"></div>
 
     <script>
-        // ─── Configuration ───
-        // API calls are proxied through Cloudflare Pages Function (/api/fact)
-        // API key is stored securely in Cloudflare Secrets — never exposed here
-        const API_ENDPOINT = '/api/fact';
-        const LOADING_TIMEOUT_MS = 15000; // 15 second safety timeout
-
         // ─── DOM Elements ───
         const factText = document.getElementById('factText');
         const factNumber = document.getElementById('factNumber');
         const factIcon = document.getElementById('factIcon');
         const categoryBadge = document.getElementById('categoryBadge');
-        const refreshBtn = document.getElementById('refreshBtn');
         const shareBtn = document.getElementById('shareBtn');
         const dateDisplay = document.getElementById('dateDisplay');
         const loadingOverlay = document.getElementById('loadingOverlay');
@@ -127,8 +111,6 @@
         let factCount = parseInt(localStorage.getItem('factCount') || '0');
         let lastVisit = localStorage.getItem('lastVisit');
         let streak = parseInt(localStorage.getItem('streak') || '0');
-        let isLoading = false;
-        let loadingTimer = null;
         let countdownTimer = null;
         const DAILY_HOUR = 7; // Update setiap jam 7 pagi
 
@@ -168,13 +150,19 @@
             const cachedDay = localStorage.getItem('dailyFactDay');
             const cachedFact = localStorage.getItem('dailyFact');
             const cachedCatKey = localStorage.getItem('dailyFactCat');
+            const cachedIsValid = cachedDay === today && isCompleteFact(cachedFact);
 
             // 1. Tampilkan cache lokal segera jika masih valid untuk hari ini
             // (Mencegah tampilan "revert" ke fakta lama sebelum API merespons)
-            if (cachedDay === today && cachedFact) {
+            if (cachedIsValid) {
                 const cat = CATEGORIES.find(c => c.key === cachedCatKey) || CATEGORIES[0];
                 displayFact(cachedFact, cat);
             } else {
+                if (cachedDay === today && cachedFact) {
+                    localStorage.removeItem('dailyFact');
+                    localStorage.removeItem('dailyFactCat');
+                    localStorage.removeItem('dailyFactDay');
+                }
                 displayFact("Memuat fakta harian...", CATEGORIES[0]);
             }
 
@@ -187,6 +175,10 @@
                 
                 // 2. Hanya update jika fakta server adalah untuk HARI INI
                 // dan berbeda dengan apa yang kita punya di lokal
+                if (!isCompleteFact(data.text)) {
+                    throw new Error('Daily fact is incomplete');
+                }
+
                 if (data.date === today && data.text !== cachedFact) {
                     localStorage.setItem('dailyFact', data.text);
                     localStorage.setItem('dailyFactCat', data.category.key || data.category);
@@ -195,8 +187,7 @@
                     displayFact(data.text, data.category);
                     console.log('Sync: Updated with today\'s global fact');
                 } else if (data.date !== today && cachedDay === today) {
-                    // Server belum update ke hari ini, tapi kita sudah punya fakta (mungkin dari tombol "Fakta Baru")
-                    // Jangan timpa fakta baru kita dengan fakta lama dari server.
+                    // Server belum update ke hari ini, tapi cache lokal masih valid.
                     console.log('Sync: Server fact is old, keeping local fact');
                 } else if (!cachedFact) {
                     // Kasus pertama kali buka atau cache kosong
@@ -204,7 +195,7 @@
                 }
             } catch (error) {
                 console.warn('Sync failed:', error);
-                // Fallback sudah ditangani di langkah #1 (menampilkan cache)
+                if (!cachedIsValid) displayFallbackFact();
             } finally {
                 showLoading(false);
             }
@@ -299,85 +290,6 @@
         // ─── Loading control ───
         function showLoading(show) {
             loadingOverlay.style.display = show ? 'flex' : 'none';
-
-            if (show) {
-                refreshBtn.classList.add('loading');
-                refreshBtn.disabled = true;
-
-                // Safety timeout — force hide after LOADING_TIMEOUT_MS
-                clearTimeout(loadingTimer);
-                loadingTimer = setTimeout(() => {
-                    if (isLoading) {
-                        isLoading = false;
-                        showLoading(false);
-                        showToast('⏱ Timeout — menampilkan fakta offline', 'error');
-                        displayFallbackFact();
-                    }
-                }, LOADING_TIMEOUT_MS);
-            } else {
-                refreshBtn.classList.remove('loading');
-                refreshBtn.disabled = false;
-                clearTimeout(loadingTimer);
-            }
-        }
-
-        // ─── Load fact via secure API proxy ───
-        async function loadFact() {
-            if (isLoading) return;
-            isLoading = true;
-            showLoading(true);
-
-            // Pick random category for variety
-            const category = CATEGORIES[Math.floor(Math.random() * CATEGORIES.length)];
-
-            try {
-                const response = await fetch(`${API_ENDPOINT}?cat=${encodeURIComponent(category.key)}`);
-
-                if (!response.ok) {
-                    const errData = await response.json().catch(() => ({}));
-                    console.error('API error:', response.status, errData);
-
-                    if (response.status === 429) {
-                        showToast('⏳ Terlalu banyak request — coba lagi nanti', 'error');
-                    } else if (response.status === 503) {
-                        showToast('📊 Kuota harian tercapai — menampilkan fakta offline', 'info');
-                    } else {
-                        showToast('🌐 API error — menampilkan fakta offline', 'error');
-                    }
-
-                    displayFallbackFact();
-                    isLoading = false;
-                    showLoading(false);
-                    return;
-                }
-
-                const data = await response.json();
-
-                if (data.fact && data.fact.trim().length > 15) {
-                    const cleaned = cleanFactText(data.fact);
-
-                    factCount++;
-                    localStorage.setItem('factCount', factCount.toString());
-
-                    // Use category from server response if available
-                    const cat = CATEGORIES.find(c => c.key === data.category) || category;
-                    saveDailyFact(cleaned, cat);
-                    displayFact(cleaned, cat);
-                    updateStats();
-                } else {
-                    console.warn('Empty response from API');
-                    showToast('🔄 Respons kosong — menampilkan fakta offline', 'info');
-                    displayFallbackFact();
-                }
-
-            } catch (error) {
-                console.error('Fetch error:', error);
-                showToast('🌐 Koneksi gagal — menampilkan fakta offline', 'error');
-                displayFallbackFact();
-            }
-
-            isLoading = false;
-            showLoading(false);
         }
 
         // ─── Cache daily fact ───
@@ -399,8 +311,15 @@
                 .replace(/\*/g, '')                            // remove markdown italic
                 .replace(/\n+/g, ' ')                          // newlines → space
                 .replace(/\s{2,}/g, ' ')                       // collapse spaces
-                .replace(/^(fakta menarik|tahukah anda|berikut)[:\s]*/i, '') // remove common prefixes
+                .replace(/^(fakta menarik|fakta unik|tahukah anda|berikut)[:\s]*/i, '') // remove common prefixes
                 .trim();
+        }
+
+        function isCompleteFact(text) {
+            if (!text || text.length < 25 || text.length > 260) return false;
+            if (!/[.!?]$/.test(text)) return false;
+            if (/[,:;]$/.test(text)) return false;
+            return text.split(/\s+/).length >= 6;
         }
 
         // ─── Display fact with animation ───
@@ -498,20 +417,7 @@
         }
 
         // ─── Event listeners ───
-        refreshBtn.addEventListener('click', () => {
-            // Manual click = force fresh fact (bypass cache)
-            loadFact();
-        });
         shareBtn.addEventListener('click', shareFact);
-
-        // Keyboard shortcut: Space or R for new fact
-        document.addEventListener('keydown', (e) => {
-            if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
-            if (e.key === ' ' || e.key === 'r' || e.key === 'R') {
-                e.preventDefault();
-                loadFact();
-            }
-        });
 
         // ─── Start ───
         init();

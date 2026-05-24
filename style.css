@@ -296,13 +296,12 @@ body::after {
 
 .fact-footer {
     display: flex;
-    gap: 10px;
+    justify-content: flex-end;
     padding: 20px 24px 24px;
     border-top: 1px solid var(--line);
     background: rgba(8, 10, 15, 0.34);
 }
 
-.refresh-btn,
 .share-btn {
     min-height: 44px;
     display: inline-flex;
@@ -320,34 +319,21 @@ body::after {
     transition: border-color 0.2s ease, background 0.2s ease, transform 0.2s ease;
 }
 
-.refresh-btn {
-    color: #07100c;
-    background: var(--green);
-    border-color: var(--green);
-}
-
 .share-btn {
     color: var(--cyan);
 }
 
-.refresh-btn:hover,
 .share-btn:hover {
     transform: translateY(-1px);
     border-color: var(--green);
 }
 
-.refresh-btn:active,
 .share-btn:active {
     transform: translateY(0);
 }
 
-.refresh-btn:hover svg,
 .share-btn:hover svg {
     animation: icon-nudge 0.55s ease both;
-}
-
-.refresh-btn.loading svg {
-    animation: spin 0.8s linear infinite;
 }
 
 .stats-section {

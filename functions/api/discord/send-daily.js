@@ -12,12 +12,8 @@ const CATEGORIES = [
 const DEFAULT_SENDER_NAME = 'Roxeign Bot';
 const DEFAULT_SETUP_HOUR = 7;
 const WIB_OFFSET_HOURS = 7;
-const HF_MODELS = [
-  'google/gemma-2-2b-it',
-  'Qwen/Qwen2.5-7B-Instruct-1M',
-  'Qwen/Qwen2.5-Coder-32B-Instruct',
-  'deepseek-ai/DeepSeek-R1-Distill-Qwen-7B'
-];
+const GEMINI_MODEL = 'gemini-2.5-flash';
+const GEMINI_API_URL = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`;
 
 /**
  * Get the "fact day" key (YYYY-MM-DD) in WIB timezone.
@@ -58,53 +54,102 @@ function getTargetHour(config) {
     : DEFAULT_SETUP_HOUR;
 }
 
+function buildFactPrompt(label) {
+  return [
+    `Berikan SATU fakta unik tentang ${label}.`,
+    'Fakta harus benar, mapan, dan mudah diverifikasi dari pengetahuan umum atau sumber tepercaya.',
+    'Hindari angka yang terlalu spesifik jika tidak yakin.',
+    'Tulis dalam Bahasa Indonesia, persis 1 kalimat lengkap, maksimal 32 kata, dan akhiri dengan tanda titik.',
+    'Jangan gunakan markdown, emoji, kutipan, sumber, atau kata pembuka seperti "Tahukah Anda".'
+  ].join(' ');
+}
+
+function cleanFactText(text) {
+  if (!text) return '';
+  return text
+    .trim()
+    .replace(/^[\s\n.,:;!?*#\-]+/, '')
+    .replace(/\*\*/g, '')
+    .replace(/\*/g, '')
+    .replace(/\n+/g, ' ')
+    .replace(/\s{2,}/g, ' ')
+    .replace(/^(fakta menarik|fakta unik|tahukah anda|berikut)[:\s]*/i, '')
+    .trim();
+}
+
+function extractGeminiText(result) {
+  return result?.candidates?.[0]?.content?.parts
+    ?.map(part => part.text || '')
+    .join(' ')
+    .trim() || '';
+}
+
+function buildGeminiRequest(label) {
+  return {
+    contents: [{
+      role: 'user',
+      parts: [{ text: buildFactPrompt(label) }]
+    }],
+    generationConfig: {
+      maxOutputTokens: 180,
+      temperature: 0.35,
+      topP: 0.8,
+      thinkingConfig: {
+        thinkingBudget: 0,
+      },
+    },
+  };
+}
+
+function isCompleteFact(text) {
+  if (!text || text.length < 25 || text.length > 260) return false;
+  if (!/[.!?]$/.test(text)) return false;
+  if (/[,:;]$/.test(text)) return false;
+  return text.split(/\s+/).length >= 6;
+}
+
 /**
- * Fact generation with multi-layer fallback
+ * Fact generation with Gemini
  */
 async function getFactFromAI(env) {
   const category = CATEGORIES[Math.floor(Math.random() * CATEGORIES.length)];
-  const messages = [
-    {
-      role: 'user',
-      content: `Berikan SATU fakta unik tentang ${category.label}. Tulis persis 1 kalimat lengkap yang harus diakhiri dengan tanda titik (.). JANGAN gunakan markdown atau kata pembuka.`
-    }
-  ];
 
-  const fetchHF = async (model) => {
-    try {
-      if (!env.HUGGINGFACE_API_KEY) return null;
-      const response = await fetch('https://router.huggingface.co/v1/chat/completions', {
-        method: 'POST',
-        headers: { 
-          'Authorization': `Bearer ${env.HUGGINGFACE_API_KEY}`,
-          'Content-Type': 'application/json' 
-        },
-        body: JSON.stringify({ 
-          model: model,
-          messages: messages,
-          max_tokens: 150,
-          temperature: 0.7
-        })
-      });
-
-      if (!response.ok) return null;
-      const result = await response.json();
-      return result.choices?.[0]?.message?.content?.trim() || null;
-    } catch (e) {
-      console.warn(`Error with model ${model}:`, e.message);
-      return null;
-    }
-  };
-
-  let factText = null;
-
-  // Hugging Face Primary
-  for (const model of HF_MODELS) {
-    factText = await fetchHF(model);
-    if (factText) break;
+  if (!env.GEMINI_API_KEY) {
+    return { text: null, category };
   }
 
-  return { text: factText, category };
+  try {
+    const response = await fetch(GEMINI_API_URL, {
+      method: 'POST',
+      headers: {
+        'x-goog-api-key': env.GEMINI_API_KEY,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(buildGeminiRequest(category.label))
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.warn(`Gemini model ${GEMINI_MODEL} failed (${response.status}): ${errorText}`);
+      return { text: null, category };
+    }
+
+    const result = await response.json();
+    if (result?.candidates?.[0]?.finishReason !== 'STOP') {
+      console.warn(`Gemini model ${GEMINI_MODEL} stopped early: ${result?.candidates?.[0]?.finishReason || 'unknown'}`);
+      return { text: null, category };
+    }
+
+    const factText = cleanFactText(extractGeminiText(result));
+    return {
+      text: isCompleteFact(factText) ? factText : null,
+      category,
+      model: GEMINI_MODEL,
+    };
+  } catch (e) {
+    console.warn('Error with Gemini:', e.message);
+    return { text: null, category };
+  }
 }
 
 /**
@@ -117,8 +162,8 @@ export async function onRequestPost({ request, env }) {
     return new Response('Unauthorized', { status: 401 });
   }
 
-  if (!env.HUGGINGFACE_API_KEY || !env.DISCORD_BOT_TOKEN) {
-    return Response.json({ error: "Required environment variables missing (HUGGINGFACE_API_KEY or DISCORD_BOT_TOKEN)!" }, { status: 500 });
+  if (!env.GEMINI_API_KEY || !env.DISCORD_BOT_TOKEN) {
+    return Response.json({ error: "Required environment variables missing (GEMINI_API_KEY or DISCORD_BOT_TOKEN)!" }, { status: 500 });
   }
 
   try {
@@ -173,7 +218,7 @@ export async function onRequestPost({ request, env }) {
     // 4. Generate Fact
     const factData = await getFactFromAI(env);
     if (!factData?.text) {
-      return new Response('AI failed to generate fact after multiple fallbacks.', { status: 500 });
+      return new Response('Gemini failed to generate fact.', { status: 500 });
     }
 
     // 5. Prepare Discord Payload
@@ -208,7 +253,9 @@ export async function onRequestPost({ request, env }) {
     await env.FACTS_KV.put('GLOBAL_DAILY_FACT', JSON.stringify({
       text: factData.text,
       category: factData.category,
-      date: dateKey
+      date: dateKey,
+      provider: 'gemini',
+      model: factData.model || GEMINI_MODEL
     }));
 
     // 8. Update Lock after successful execution

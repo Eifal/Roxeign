@@ -4,41 +4,20 @@
 // Security layers:
 //   1. Origin/Referer validation
 //   2. Per-IP rate limiting (KV)
-//   3. Shared KV response caching (24h per category)
+//   3. Shared KV/global fact lookup
 //   4. KV Binding validation
-//   5. Hugging Face Global Router API
 // ═══════════════════════════════════════════════════════════════
 
 // ─── Configuration ───
-const HF_MODELS = [
-  'google/gemma-2-2b-it',
-  'Qwen/Qwen2.5-7B-Instruct-1M',
-  'Qwen/Qwen2.5-Coder-32B-Instruct',
-  'deepseek-ai/DeepSeek-R1-Distill-Qwen-7B'
-];
-
 const VALID_CATEGORIES = [
   'sains', 'sejarah', 'alam', 'luar angkasa',
   'hewan', 'tubuh', 'teknologi', 'geografi',
 ];
 
-const CATEGORY_LABELS = {
-  'sains': 'Sains',
-  'sejarah': 'Sejarah',
-  'alam': 'Alam',
-  'luar angkasa': 'Luar Angkasa',
-  'hewan': 'Hewan',
-  'tubuh': 'Tubuh Manusia',
-  'teknologi': 'Teknologi',
-  'geografi': 'Geografi',
-};
-
-// Rate limit: max requests per IP per window
-const RATE_LIMIT_MAX = 10;
+// Rate limit: max requests per IP per window.
+// This endpoint no longer calls AI, so the public read limit can be generous.
+const RATE_LIMIT_MAX = 120;
 const RATE_LIMIT_WINDOW_SEC = 3600; // 1 hour
-
-// Cache TTL: 24 hours
-const CACHE_TTL_SEC = 86400;
 
 // Allowed origins (add your custom domain if you have one)
 const ALLOWED_ORIGINS = [
@@ -94,18 +73,21 @@ function jsonResponse(data, status, origin) {
   });
 }
 
-/** Clean AI response text */
-function cleanFactText(text) {
-  if (!text) return '';
-  return text
-    .trim()
-    .replace(/^[\s\n.,:;!?*#\-]+/, '')
-    .replace(/\*\*/g, '')
-    .replace(/\*/g, '')
-    .replace(/\n+/g, ' ')
-    .replace(/\s{2,}/g, ' ')
-    .replace(/^(fakta menarik|tahukah anda|berikut)[:\s]*/i, '')
-    .trim();
+function parseStoredDailyFact(raw) {
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw);
+    return isCompleteFact(parsed?.text) ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+function isCompleteFact(text) {
+  if (!text || text.length < 25 || text.length > 260) return false;
+  if (!/[.!?]$/.test(text)) return false;
+  if (/[,:;]$/.test(text)) return false;
+  return text.split(/\s+/).length >= 6;
 }
 
 // ─── Main Handler ───
@@ -165,25 +147,9 @@ export async function onRequest(context) {
   // ── Parse & validate category ──
   const catParam = url.searchParams.get('cat') || 'sains';
   const category = VALID_CATEGORIES.includes(catParam) ? catParam : 'sains';
-  const label = CATEGORY_LABELS[category];
 
-  // ═══ LAYER 3: KV cache lookup ═══
+  // ═══ LAYER 3: Fact day and fallback category ═══
   const dateKey = getDateKey();
-  const cacheKey = `fact:${category}:${dateKey}`;
-
-  try {
-    const cached = await env.FACTS_KV.get(cacheKey);
-    if (cached) {
-      return jsonResponse({
-        fact: cached,
-        category,
-        cached: true,
-        date: dateKey,
-      }, 200, origin);
-    }
-  } catch (e) {
-    console.error('KV read error (cache):', e);
-  }
 
   // ═══ LAYER 4: KV Binding Check ═══
   if (!env.FACTS_KV) {
@@ -194,91 +160,34 @@ export async function onRequest(context) {
     }, 500, origin);
   }
 
-  // ═══ LAYER 5: Call Hugging Face API ═══
-  const apiKey = env.HUGGINGFACE_API_KEY;
-  if (!apiKey) {
-    console.error('HUGGINGFACE_API_KEY secret not configured');
-    return jsonResponse({
-      error: 'Server configuration error',
-      message: 'API key Hugging Face belum dikonfigurasi.',
-    }, 500, origin);
-  }
-
   try {
-    const messages = [
-      {
-        role: 'user',
-        content: `Berikan SATU fakta unik tentang ${label}. Tulis persis 1 kalimat lengkap yang harus diakhiri dengan tanda titik (.). JANGAN gunakan markdown atau kata pembuka.`
-      }
-    ];
+    const globalDailyFact = parseStoredDailyFact(await env.FACTS_KV.get('GLOBAL_DAILY_FACT'));
 
-    let fact = null;
-    let lastError = null;
-
-    for (const model of HF_MODELS) {
-      try {
-        const response = await fetch('https://router.huggingface.co/v1/chat/completions', {
-          method: 'POST',
-          headers: { 
-            'Authorization': `Bearer ${apiKey}`,
-            'Content-Type': 'application/json' 
-          },
-          body: JSON.stringify({ 
-            model: model,
-            messages: messages,
-            max_tokens: 150,
-            temperature: 0.7
-          }),
-        });
-
-        if (!response.ok) {
-          const errText = await response.text();
-          console.warn(`HF Model ${model} failed (${response.status}): ${errText}`);
-          lastError = { status: response.status, message: errText };
-          continue; 
-        }
-
-        const result = await response.json();
-        const rawText = result.choices?.[0]?.message?.content || "";
-        const cleaned = cleanFactText(rawText);
-
-        if (cleaned && cleaned.length >= 15) {
-          fact = cleaned;
-          break; 
-        }
-      } catch (e) {
-        console.warn(`Error with model ${model}:`, e.message);
-        lastError = e;
-      }
-    }
-
-    if (!fact) {
+    if (!globalDailyFact) {
       return jsonResponse({
-        error: 'All AI models failed',
-        details: lastError?.message || lastError?.toString(),
-        status: lastError?.status || 502
-      }, 502, origin);
-    }
-
-    // Store in cache
-    try {
-      await env.FACTS_KV.put(cacheKey, fact, { expirationTtl: CACHE_TTL_SEC });
-    } catch (e) {
-      console.error('KV write error (cache):', e);
+        fact: null,
+        category,
+        fallback: true,
+        cached: false,
+        date: dateKey,
+        message: 'Belum ada fakta harian dari scheduler. Gunakan fallback lokal.'
+      }, 200, origin);
     }
 
     return jsonResponse({
-      fact,
-      category,
-      cached: false,
-      date: dateKey,
+      fact: globalDailyFact.text,
+      category: globalDailyFact.category?.key || globalDailyFact.category || category,
+      cached: true,
+      date: globalDailyFact.date || dateKey,
+      provider: globalDailyFact.provider || 'kv',
+      source: 'GLOBAL_DAILY_FACT',
     }, 200, origin);
 
   } catch (error) {
-    console.error('General HF processing error:', error);
+    console.error('KV fact lookup error:', error);
     return jsonResponse({
-      error: 'Failed to connect to AI service',
-      message: 'Gagal menghubungi layanan Hugging Face.',
-    }, 502, origin);
+      error: 'Failed to read daily fact',
+      message: 'Gagal membaca fakta harian.',
+    }, 500, origin);
   }
 }
